@@ -1,0 +1,44 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DATA_DIR: /data
+      MAX_UPLOAD_BYTES: "21474836480"
+    volumes:
+      - ./data:/data
+    depends_on:
+      - redis
+    ports:
+      - "8000:8000"
+
+  worker:
+    build: ./backend
+    restart: unless-stopped
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=1
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DATA_DIR: /data
+    volumes:
+      - ./data:/data
+    depends_on:
+      - redis
+      - backend
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+
+volumes:
+  redis-data:

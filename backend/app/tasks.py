@@ -1,0 +1,130 @@
+"""Celery tasks: preview generation and the main PiP render pipeline."""
+from __future__ import annotations
+
+import shutil
+from pathlib import Path
+from typing import List, Optional
+
+from app.celery_app import celery_app
+from app.config import FILES_DIR, OUTPUTS_DIR, PREVIEWS_DIR, WORK_DIR
+from app import ffmpeg_utils as ff
+
+
+@celery_app.task(bind=True, name="generate_preview")
+def generate_preview(self, file_id: str) -> dict:
+    src = FILES_DIR / file_id
+    dst = PREVIEWS_DIR / f"{file_id}.mp4"
+    if not src.exists():
+        return {"ok": False, "error": "source missing"}
+    if dst.exists():
+        return {"ok": True, "cached": True}
+    try:
+        ff.make_preview(src, dst)
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": str(e)}
+    return {"ok": True}
+
+
+@celery_app.task(bind=True, name="render_pip_job")
+def render_pip_job(  # noqa: PLR0913
+    self,
+    *,
+    hires_file_ids: List[str],
+    dvr_file_id: str,
+    audio_file_id: Optional[str],
+    hires_trim: dict,
+    dvr_trim: dict,
+    audio_trim: dict,
+    pip: dict,
+    output_width: int,
+    output_height: int,
+    codec: str,
+) -> dict:
+    job_id = self.request.id
+    work = WORK_DIR / job_id
+    work.mkdir(parents=True, exist_ok=True)
+
+    def report(progress: float, stage: str, message: str = "") -> None:
+        self.update_state(
+            state="PROGRESS",
+            meta={
+                "progress": float(max(0.0, min(1.0, progress))),
+                "stage": stage,
+                "message": message,
+            },
+        )
+
+    try:
+        # 1. Concatenate hi-res chunks if needed (lossless when possible).
+        report(0.0, "preparing", "Vorbereiten der Hi-Res-Datei")
+        hires_paths = [FILES_DIR / fid for fid in hires_file_ids]
+        for p in hires_paths:
+            if not p.exists():
+                raise FileNotFoundError(f"hi-res chunk missing: {p.name}")
+
+        if len(hires_paths) == 1:
+            hires_master = hires_paths[0]
+        else:
+            hires_master = work / "hires_master.mp4"
+            try:
+                ff.concat_lossless(hires_paths, hires_master)
+            except Exception:
+                # Fallback: re-encode each part to a uniform format, then concat.
+                report(0.02, "preparing", "Lossless concat fehlgeschlagen, normalisiere Chunks")
+                normalized: List[Path] = []
+                for i, p in enumerate(hires_paths):
+                    n = work / f"norm_{i:03d}.mp4"
+                    ff.re_encode_normalize(p, n)
+                    normalized.append(n)
+                ff.concat_lossless(normalized, hires_master)
+
+        report(0.05, "preparing", "Hi-Res bereit")
+
+        dvr_path = FILES_DIR / dvr_file_id
+        if not dvr_path.exists():
+            raise FileNotFoundError("dvr file missing")
+        audio_path: Optional[Path] = None
+        if audio_file_id:
+            audio_path = FILES_DIR / audio_file_id
+            if not audio_path.exists():
+                raise FileNotFoundError("audio file missing")
+
+        # 2. Render PiP.
+        out_path = OUTPUTS_DIR / f"{job_id}.mp4"
+
+        def cb(p: float, stage: str) -> None:
+            report(p, stage)
+
+        ff.render_pip(
+            hires=hires_master,
+            dvr=dvr_path,
+            audio=audio_path,
+            hires_trim=(float(hires_trim.get("start", 0.0)), hires_trim.get("end")),
+            dvr_trim=(float(dvr_trim.get("start", 0.0)), dvr_trim.get("end")),
+            audio_trim=(float(audio_trim.get("start", 0.0)), audio_trim.get("end")),
+            pip_x_frac=float(pip.get("x", 0.02)),
+            pip_y_frac=float(pip.get("y", 0.02)),
+            pip_w_frac=float(pip.get("width", 0.30)),
+            output_width=int(output_width),
+            output_height=int(output_height),
+            codec=codec,
+            dst=out_path,
+            progress_cb=cb,
+            stage_start=0.05,
+            stage_end=0.99,
+        )
+
+        report(1.0, "done", "Fertig")
+        return {
+            "ok": True,
+            "output_filename": out_path.name,
+        }
+
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": str(e)}
+    finally:
+        # Clean intermediate work files.  Keep the output (lives in OUTPUTS_DIR).
+        try:
+            shutil.rmtree(work, ignore_errors=True)
+        except OSError:
+            pass
