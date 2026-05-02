@@ -1,7 +1,9 @@
 """Celery tasks: preview generation and the main PiP render pipeline."""
 from __future__ import annotations
 
+import json
 import shutil
+import subprocess
 from pathlib import Path
 from typing import List, Optional
 
@@ -22,6 +24,66 @@ def generate_preview(self, file_id: str) -> dict:
         ff.make_preview(src, dst)
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "error": str(e)}
+    return {"ok": True}
+
+
+@celery_app.task(bind=True, name="generate_concat_preview")
+def generate_concat_preview(self, h: str, file_ids: List[str]) -> dict:
+    """Single-pass concat + 480p transcode covering ALL hi-res chunks.
+
+    Output is a small browser-friendly MP4 the frontend uses for the
+    full-length preview in the trim and PiP-editor steps. Cached by hash.
+    """
+    out = PREVIEWS_DIR / f"concat_{h}.mp4"
+    status_file = PREVIEWS_DIR / f"concat_{h}.json"
+
+    def write_status(status: str, error: Optional[str] = None) -> None:
+        try:
+            payload = {"status": status}
+            if error:
+                payload["error"] = error[:500]
+            status_file.write_text(json.dumps(payload))
+        except OSError:
+            pass
+
+    paths = [FILES_DIR / fid for fid in file_ids]
+    for p in paths:
+        if not p.exists():
+            write_status("failed", f"missing source: {p.name}")
+            return {"ok": False, "error": "missing"}
+
+    list_file = PREVIEWS_DIR / f"concat_{h}.txt"
+    with list_file.open("w", encoding="utf-8") as f:
+        for p in paths:
+            safe = str(p).replace("'", r"'\''")
+            f.write(f"file '{safe}'\n")
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-f", "concat", "-safe", "0",
+        "-i", str(list_file),
+        "-vf", "scale='min(854,iw)':-2,fps=24",
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "32",
+        "-pix_fmt", "yuv420p",
+        "-an",
+        "-movflags", "+faststart",
+        str(out),
+    ]
+    try:
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if proc.returncode != 0:
+            write_status("failed", proc.stderr[-1500:])
+            try: out.unlink(missing_ok=True)
+            except OSError: pass
+            return {"ok": False, "error": proc.stderr[-1500:]}
+    finally:
+        try: list_file.unlink()
+        except OSError: pass
+
+    # Mark ready by removing the status file (presence of out + absence of
+    # status file means "ready"; status file present means in-progress/failed).
+    try: status_file.unlink(missing_ok=True)
+    except OSError: pass
     return {"ok": True}
 
 

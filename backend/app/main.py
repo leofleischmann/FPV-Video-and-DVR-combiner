@@ -17,6 +17,7 @@ The on-disk layout under DATA_DIR:
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import secrets
 import shutil
@@ -36,10 +37,13 @@ from app.config import (
     OUTPUTS_DIR,
     PREVIEWS_DIR,
     UPLOADS_DIR,
+    WORK_DIR,
 )
 from app import ffmpeg_utils as ff
 from app.models import (
     CompleteUploadResponse,
+    ConcatPreviewRequest,
+    ConcatPreviewStatus,
     FileInfo,
     InitUploadRequest,
     InitUploadResponse,
@@ -87,6 +91,16 @@ def _write_meta(upload_id: str, meta: dict) -> None:
 # ---------------------------------------------------------------------------
 @app.get("/api/health")
 async def health() -> dict:
+    return {"ok": True}
+
+
+@app.post("/api/reset-workspace")
+async def reset_workspace() -> dict:
+    """Delete all uploads, committed files, previews, rendered outputs, and temp work dirs."""
+    for d in (UPLOADS_DIR, FILES_DIR, PREVIEWS_DIR, OUTPUTS_DIR, WORK_DIR):
+        if d.is_dir():
+            shutil.rmtree(d)
+        d.mkdir(parents=True, exist_ok=True)
     return {"ok": True}
 
 
@@ -300,6 +314,67 @@ async def file_raw(file_id: str, request: Request) -> Response:
         "audio/mpeg" if info.filename.lower().endswith(".mp3") else "application/octet-stream"
     )
     return _range_response(p, request, media)
+
+
+# ---------------------------------------------------------------------------
+# Concat preview (full-length browser preview spanning multiple hi-res chunks)
+# ---------------------------------------------------------------------------
+def _concat_hash(ids) -> str:
+    return hashlib.sha1("|".join(ids).encode()).hexdigest()[:16]
+
+
+@app.post("/api/concat-preview", response_model=ConcatPreviewStatus)
+async def start_concat_preview(req: ConcatPreviewRequest) -> ConcatPreviewStatus:
+    h = _concat_hash(req.hires_file_ids)
+    out = PREVIEWS_DIR / f"concat_{h}.mp4"
+    status_file = PREVIEWS_DIR / f"concat_{h}.json"
+
+    if out.exists() and not status_file.exists():
+        return ConcatPreviewStatus(hash=h, status="ready")
+
+    if status_file.exists():
+        try:
+            data = json.loads(status_file.read_text())
+            return ConcatPreviewStatus(
+                hash=h,
+                status=data.get("status", "pending"),
+                error=data.get("error"),
+            )
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    for fid in req.hires_file_ids:
+        if not (FILES_DIR / fid).exists():
+            raise HTTPException(400, f"missing source: {fid}")
+
+    status_file.write_text(json.dumps({"status": "pending"}))
+    celery_app.send_task("generate_concat_preview", args=[h, req.hires_file_ids])
+    return ConcatPreviewStatus(hash=h, status="pending")
+
+
+@app.get("/api/concat-preview/{h}/status", response_model=ConcatPreviewStatus)
+async def concat_preview_status(h: str) -> ConcatPreviewStatus:
+    out = PREVIEWS_DIR / f"concat_{h}.mp4"
+    status_file = PREVIEWS_DIR / f"concat_{h}.json"
+    if out.exists() and not status_file.exists():
+        return ConcatPreviewStatus(hash=h, status="ready")
+    if status_file.exists():
+        try:
+            data = json.loads(status_file.read_text())
+            return ConcatPreviewStatus(
+                hash=h, status=data.get("status", "pending"), error=data.get("error")
+            )
+        except (json.JSONDecodeError, OSError):
+            pass
+    return ConcatPreviewStatus(hash=h, status="missing")
+
+
+@app.get("/api/concat-preview/{h}")
+async def serve_concat_preview(h: str, request: Request) -> Response:
+    p = PREVIEWS_DIR / f"concat_{h}.mp4"
+    if not p.exists():
+        raise HTTPException(404, "preview not ready")
+    return _range_response(p, request, "video/mp4")
 
 
 # ---------------------------------------------------------------------------

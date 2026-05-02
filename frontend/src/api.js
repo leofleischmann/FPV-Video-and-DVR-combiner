@@ -27,6 +27,10 @@ async function jsonFetch(url, opts = {}) {
 export const api = {
   health: () => jsonFetch('/api/health'),
 
+  resetWorkspace() {
+    return jsonFetch('/api/reset-workspace', { method: 'POST' })
+  },
+
   initUpload(filename, size, kind) {
     return jsonFetch('/api/uploads/init', {
       method: 'POST',
@@ -76,6 +80,21 @@ export const api = {
 
   jobPreviewUrl(jobId) {
     return `/api/jobs/${jobId}/preview`
+  },
+
+  startConcatPreview(hiresFileIds) {
+    return jsonFetch('/api/concat-preview', {
+      method: 'POST',
+      body: { hires_file_ids: hiresFileIds },
+    })
+  },
+
+  concatPreviewStatus(hash) {
+    return jsonFetch(`/api/concat-preview/${hash}/status`)
+  },
+
+  concatPreviewUrl(hash) {
+    return `/api/concat-preview/${hash}`
   },
 }
 

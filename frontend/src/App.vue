@@ -103,23 +103,39 @@
       <!-- STEP 2: TRIM -->
       <div v-if="hiresFiles.length && dvrFile" class="panel">
         <h2>Trim &amp; Synchronisation</h2>
-        <p class="muted">
-          Hi-Res definiert die Render-Zeitachse. DVR-Trim wird unabhängig zugeschnitten und im Overlay
-          ab Zeitpunkt 0 abgespielt — passe die DVR-Startzeit so an, dass sie mit dem Hi-Res-Frame übereinstimmt.
-        </p>
+        <div class="muted" style="margin-bottom: .75rem; line-height: 1.5">
+          <strong style="color: var(--text)">Workflow:</strong>
+          <ol style="margin: .25rem 0 .25rem 1.25rem; padding: 0">
+            <li>
+              Spule beide Videos auf <strong>denselben realen Moment</strong>
+              (z.&nbsp;B. Motorstart, Klick, Take-off) und drücke jeweils
+              <span class="kbd">Sync-Start setzen</span>.
+              Damit ist <strong>t = 0</strong> der Render-Zeitachse definiert.
+            </li>
+            <li>
+              Spule beide Videos zum gewünschten <strong>Endzeitpunkt</strong> und
+              drücke <span class="kbd">Sync-Ende setzen</span>. Daraus ergibt sich
+              die Render-Dauer.
+            </li>
+            <li>
+              Im nächsten Schritt kannst du das Sync-Ergebnis im PiP-Preview
+              <em>frame-genau</em> kontrollieren und ggf. nochmal nachschneiden.
+            </li>
+          </ol>
+        </div>
 
         <div class="row">
           <div class="col">
-            <h3>Hi-Res {{ hiresFiles.length > 1 ? '(erster Chunk als Vorschau)' : '' }}</h3>
+            <h3>📹 Hi-Res (Drohne) {{ hiresFiles.length > 1 && !concatPreviewReady ? '— Vorschau wird vorbereitet' : '' }}</h3>
             <VideoTrimmer
-              :src="hiresPreviewSrc"
+              :src="hiresFullPreviewSrc"
               v-model="hiresTrim"
               :duration="hiresDuration"
               @duration="d => hiresDuration = d"
             />
           </div>
           <div class="col">
-            <h3>DVR</h3>
+            <h3>🥽 DVR (Brille)</h3>
             <VideoTrimmer
               :src="dvrPreviewSrc"
               v-model="dvrTrim"
@@ -129,9 +145,40 @@
           </div>
         </div>
 
+        <div class="panel" style="margin-top:1rem;background:var(--panel-2);box-shadow:none">
+          <div style="display:flex;flex-wrap:wrap;gap:1.5rem;align-items:center">
+            <div>
+              <div class="muted" style="font-size:.8rem">Hi-Res-Bereich</div>
+              <div style="font-variant-numeric: tabular-nums">
+                {{ formatTimeFull(hiresTrim.start) }} → {{ formatTimeFull(effectiveHiresEnd) }}
+                <span class="muted">({{ formatTimeFull(effectiveHiresEnd - hiresTrim.start) }})</span>
+              </div>
+            </div>
+            <div>
+              <div class="muted" style="font-size:.8rem">DVR-Bereich</div>
+              <div style="font-variant-numeric: tabular-nums">
+                {{ formatTimeFull(dvrTrim.start) }} → {{ formatTimeFull(effectiveDvrEnd) }}
+                <span class="muted">({{ formatTimeFull(effectiveDvrEnd - dvrTrim.start) }})</span>
+              </div>
+            </div>
+            <div>
+              <div class="muted" style="font-size:.8rem">Sync-Offset (DVR − Hi-Res)</div>
+              <div style="font-variant-numeric: tabular-nums">
+                {{ syncOffset >= 0 ? '+' : '' }}{{ syncOffset.toFixed(3) }} s
+              </div>
+            </div>
+            <div>
+              <div class="muted" style="font-size:.8rem">Render-Dauer (Output)</div>
+              <div style="font-variant-numeric: tabular-nums; color: var(--accent-2); font-weight:600">
+                {{ formatTimeFull(outputDuration) }}
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div v-if="audioFile" class="row" style="margin-top:1rem">
           <div class="col">
-            <h3>MP3 Trim</h3>
+            <h3>🎵 Audio-Trim (MP3)</h3>
             <div>
               <audio :src="audioRawSrc" controls preload="metadata" style="width:100%"
                 @loadedmetadata="onAudioMeta" />
@@ -249,8 +296,82 @@ const codec = ref('h264')
 const jobId = ref('')
 const renderError = ref('')
 
+const concatPreviewHash = ref(null)
+const concatPreviewStatus = ref('idle') // idle | pending | ready | failed | missing
+let concatPollGen = 0
+
 const hasAnyState = computed(() =>
   hiresFiles.value.length > 0 || !!dvrFile.value || !!audioFile.value || !!jobId.value
+)
+
+const concatPreviewReady = computed(() => {
+  if (hiresFiles.value.length <= 1) return true
+  return concatPreviewStatus.value === 'ready'
+})
+
+const hiresFullPreviewSrc = computed(() => {
+  const files = hiresFiles.value
+  if (!files.length) return ''
+  if (files.length === 1) return bestSrc(files[0])
+  if (!concatPreviewHash.value || concatPreviewStatus.value !== 'ready') return ''
+  return api.concatPreviewUrl(concatPreviewHash.value)
+})
+
+const effectiveHiresEnd = computed(
+  () => hiresTrim.value.end ?? hiresDuration.value ?? 0,
+)
+const effectiveDvrEnd = computed(
+  () => dvrTrim.value.end ?? dvrDuration.value ?? 0,
+)
+const syncOffset = computed(() => dvrTrim.value.start - hiresTrim.value.start)
+const outputDuration = computed(() => {
+  const hi = effectiveHiresEnd.value - hiresTrim.value.start
+  const dv = effectiveDvrEnd.value - dvrTrim.value.start
+  return Math.max(0, Math.min(hi, dv))
+})
+
+function formatTimeFull(s) {
+  if (!Number.isFinite(s) || s < 0) s = 0
+  const m = Math.floor(s / 60)
+  const sec = (s % 60).toFixed(3)
+  return `${m}:${sec.padStart(6, '0')}`
+}
+
+watch(
+  hiresFiles,
+  async (files) => {
+    if (files.length <= 1) {
+      concatPreviewHash.value = null
+      concatPreviewStatus.value = files.length ? 'ready' : 'idle'
+      concatPollGen++
+      return
+    }
+    const myGen = ++concatPollGen
+    try {
+      const res = await api.startConcatPreview(files.map((f) => f.file_id))
+      if (myGen !== concatPollGen) return
+      concatPreviewHash.value = res.hash
+      concatPreviewStatus.value = res.status === 'ready' ? 'ready' : 'pending'
+      if (res.status === 'ready') return
+      while (myGen === concatPollGen) {
+        await new Promise((r) => setTimeout(r, 1500))
+        const st = await api.concatPreviewStatus(res.hash)
+        if (myGen !== concatPollGen) return
+        concatPreviewStatus.value = st.status
+        if (
+          st.status === 'ready'
+          || st.status === 'failed'
+          || st.status === 'missing'
+          || st.error
+        ) {
+          break
+        }
+      }
+    } catch {
+      if (myGen === concatPollGen) concatPreviewStatus.value = 'failed'
+    }
+  },
+  { deep: true },
 )
 
 function bestSrc(f) {
@@ -482,18 +603,24 @@ async function restoreSession() {
 }
 
 async function resetAll() {
-  if (!confirm('Alle hochgeladenen Dateien und Einstellungen werden gelöscht. Fortfahren?')) {
+  if (!confirm(
+    'Komplett zurücksetzen: Auf dem Server werden Uploads, Dateien, Vorschauen, '
+    + 'Render-Ausgaben und temporäre Arbeitsordner gelöscht. Browser-Speicher ebenfalls. Fortfahren?',
+  )) {
     return
   }
-  // Snapshot the IDs first so we can fire deletes in parallel without races.
-  const fileIds = [
-    ...hiresFiles.value.map(f => f.file_id),
-    ...(dvrFile.value ? [dvrFile.value.file_id] : []),
-    ...(audioFile.value ? [audioFile.value.file_id] : []),
-  ]
-  const oldJobId = jobId.value
+  try {
+    await api.resetWorkspace()
+  } catch (e) {
+    renderError.value = e.message || String(e)
+    alert(`Reset am Server fehlgeschlagen: ${renderError.value}`)
+    return
+  }
 
-  // Reset UI state immediately.
+  concatPollGen++
+  concatPreviewHash.value = null
+  concatPreviewStatus.value = 'idle'
+
   hiresFiles.value = []
   dvrFile.value = null
   audioFile.value = null
@@ -512,13 +639,6 @@ async function resetAll() {
   renderError.value = ''
 
   try { localStorage.removeItem(STORAGE_KEY) } catch { /* ignore */ }
-
-  // Server-side cleanup, fire-and-forget — failures are non-fatal because
-  // the user's UI is already clean.
-  await Promise.allSettled([
-    ...fileIds.map(fid => api.deleteFile(fid)),
-    ...(oldJobId ? [fetch(`/api/jobs/${oldJobId}`, { method: 'DELETE' })] : []),
-  ])
 }
 
 onMounted(() => { restoreSession() })

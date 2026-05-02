@@ -58,6 +58,17 @@ class RenderJobRequest(BaseModel):
     codec: Literal["h264", "h265"] = "h264"
 
 
+class ConcatPreviewRequest(BaseModel):
+    hires_file_ids: List[str] = Field(..., min_length=1)
+
+
+class ConcatPreviewStatus(BaseModel):
+    hash: str
+    status: Literal["ready", "pending", "failed", "missing"]
+    duration: Optional[float] = None
+    error: Optional[str] = None
+
+
 class JobStatus(BaseModel):
     job_id: str
     state: str  # PENDING, STARTED, PROGRESS, SUCCESS, FAILURE
