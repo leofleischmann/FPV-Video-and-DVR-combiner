@@ -120,7 +120,13 @@ import { computed, ref, watch } from 'vue'
 const props = defineProps({
   src: { type: String, default: '' },
   modelValue: { type: Object, required: true }, // { start, end | null }
+  /** Timeline length for trim sliders (can span multiple source files). */
   duration: { type: Number, default: 0 },
+  /**
+   * If > 0, video seek/nudge/position is capped here (e.g. first chunk only)
+   * while `duration` can be longer for trim end/start across a merged timeline.
+   */
+  playbackMax: { type: Number, default: 0 },
 })
 const emit = defineEmits(['update:modelValue', 'duration'])
 
@@ -138,6 +144,14 @@ function emitUpdate(patch) {
 }
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)) }
+
+/** Upper bound for <video>.currentTime (preview may be shorter than trim timeline). */
+function videoSeekHi() {
+  const v = videoEl.value
+  const vd = v && isFinite(v.duration) && v.duration > 0 ? v.duration : Infinity
+  if (props.playbackMax > 0) return Math.min(props.playbackMax, vd)
+  return Math.min(props.duration || Infinity, vd)
+}
 
 // ----- range sliders -----
 function onStartInput(e) {
@@ -201,7 +215,7 @@ function onEndTextInput(e) {
 function nudge(deltaSec) {
   const v = videoEl.value
   if (!v) return
-  v.currentTime = clamp(v.currentTime + deltaSec, 0, props.duration || v.duration || Infinity)
+  v.currentTime = clamp(v.currentTime + deltaSec, 0, videoSeekHi())
   currentTime.value = v.currentTime
 }
 function nudgeFrame(frames) {
@@ -210,7 +224,7 @@ function nudgeFrame(frames) {
 function onCurrentTimeInput(e) {
   const v = parseTime(e.target.value)
   if (!isFinite(v) || !videoEl.value) return
-  videoEl.value.currentTime = clamp(v, 0, props.duration || videoEl.value.duration || v)
+  videoEl.value.currentTime = clamp(v, 0, videoSeekHi())
   currentTime.value = videoEl.value.currentTime
 }
 

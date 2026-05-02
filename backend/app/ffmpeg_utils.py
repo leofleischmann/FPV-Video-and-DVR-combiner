@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple  # noqa: F401
 
+from app.hw_encode import encoder_args_for_codec, get_h264_encoder
 
 ProgressCb = Callable[[float, str], None]
 
@@ -104,12 +105,29 @@ def make_preview(src: Path, dst: Path) -> None:
     _capture_run(cmd)
 
 
-def concat_lossless(parts: List[Path], dst: Path) -> None:
+def concat_lossless(
+    parts: List[Path],
+    dst: Path,
+    *,
+    faststart: bool = False,
+    progress_cb: Optional[ProgressCb] = None,
+    progress_stage: str = "preparing",
+    stage_start: float = 0.0,
+    stage_end: float = 1.0,
+) -> None:
     """Lossless concat of equally-encoded MP4 chunks via the concat demuxer.
 
-    Raises with the captured stderr tail so we can actually diagnose failures
-    (e.g. mismatched codec params between chunks → caller falls back to
-    re-encoding).
+    Uses stream copy only (**no** decode/encode) — a GPU cannot accelerate this
+    step meaningfully; time is dominated by disk I/O.
+
+    **faststart**: When True, adds ``-movflags +faststart`` (good for files
+    served over HTTP). For intermediate stitches fed back into FFmpeg, keep
+    **False** — ``+faststart`` forces extra mux work and often makes large
+    concatenations much slower with no benefit.
+
+    Optional **progress_cb** runs ffmpeg with ``-progress pipe:1`` and maps
+    output time to ``[stage_start, stage_end]`` (total duration = sum of part
+    durations from ffprobe).
     """
     dst.parent.mkdir(parents=True, exist_ok=True)
     list_file = dst.with_suffix(".txt")
@@ -117,21 +135,70 @@ def concat_lossless(parts: List[Path], dst: Path) -> None:
         for p in parts:
             safe = str(p).replace("'", r"'\''")
             f.write(f"file '{safe}'\n")
-    cmd = [
-        "ffmpeg", "-y",
-        "-f", "concat", "-safe", "0",
-        "-i", str(list_file),
-        "-c", "copy",
-        "-movflags", "+faststart",
-        str(dst),
-    ]
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+    total_seconds = 0.0
+    for p in parts:
+        try:
+            total_seconds += max(0.001, ffprobe(p).duration or 0.0)
+        except Exception:
+            total_seconds += 60.0
+    total_seconds = max(total_seconds, 0.1)
+
+    tail_args: List[str] = ["-c", "copy"]
+    if faststart:
+        tail_args += ["-movflags", "+faststart"]
+    tail_args.append(str(dst))
+
     try:
-        list_file.unlink()
-    except OSError:
-        pass
-    if proc.returncode != 0:
-        raise RuntimeError(f"concat -c copy failed: {proc.stderr[-1500:]}")
+        if progress_cb is not None:
+            cmd = [
+                "ffmpeg",
+                "-y",
+                "-progress",
+                "pipe:1",
+                "-nostats",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(list_file),
+                *tail_args,
+            ]
+            _run_with_progress(
+                cmd,
+                total_seconds,
+                progress_cb,
+                progress_stage,
+                stage_start,
+                stage_end,
+            )
+        else:
+            cmd = [
+                "ffmpeg",
+                "-y",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(list_file),
+                *tail_args,
+            ]
+            proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            if proc.returncode != 0:
+                raise RuntimeError(f"concat -c copy failed: {proc.stderr[-1500:]}")
+    finally:
+        try:
+            list_file.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def _run_with_progress(
@@ -298,10 +365,8 @@ def render_pip(
 
     filter_complex = ";".join(filters)
 
-    if codec == "h265":
-        vcodec = ["-c:v", "libx265", "-preset", "medium", "-crf", "26", "-tag:v", "hvc1"]
-    else:
-        vcodec = ["-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p"]
+    enc_name, vcodec = encoder_args_for_codec(codec if codec in ("h264", "h265") else "h264")
+    print(f"[render_pip] encoder={enc_name} codec_choice={codec}", flush=True)
 
     cmd: List[str] = [
         "ffmpeg", "-y",
@@ -342,12 +407,12 @@ def re_encode_normalize(
     dst.parent.mkdir(parents=True, exist_ok=True)
     info = ffprobe(src)
     duration = max(0.001, info.duration or 0.001)
+    _, venc = get_h264_encoder()
     cmd = [
         "ffmpeg", "-y",
         "-progress", "pipe:1", "-nostats",
         "-i", str(src),
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
-        "-pix_fmt", "yuv420p",
+        *venc,
         "-c:a", "aac", "-b:a", "192k", "-ac", "2",
         "-movflags", "+faststart",
         str(dst),

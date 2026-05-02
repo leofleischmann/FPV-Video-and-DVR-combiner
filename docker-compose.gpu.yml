@@ -1,0 +1,19 @@
+# Optional overlay: NVIDIA GPU encoding for the Celery worker (NVENC).
+# Requires: NVIDIA driver + NVIDIA Container Toolkit on the host.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+#
+# Backend gets GPU too so GET /api/encoding matches the worker encoder probes.
+services:
+  backend:
+    gpus: all
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      # NVENC needs the "video" capability so libnvidia-encode.so.* is mounted.
+      # Without it: nvidia-smi works but FFmpeg falls back to libx264 (CPU).
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility,video
+  worker:
+    gpus: all
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility,video

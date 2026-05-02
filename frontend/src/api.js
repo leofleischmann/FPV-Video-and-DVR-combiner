@@ -27,6 +27,10 @@ async function jsonFetch(url, opts = {}) {
 export const api = {
   health: () => jsonFetch('/api/health'),
 
+  encodingInfo() {
+    return jsonFetch('/api/encoding')
+  },
+
   resetWorkspace() {
     return jsonFetch('/api/reset-workspace', { method: 'POST' })
   },

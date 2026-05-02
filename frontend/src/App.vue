@@ -2,8 +2,19 @@
   <div class="app-shell">
     <header class="header">
       <div class="brand">FPV <span class="accent">PiP</span> Merger</div>
-      <div style="display:flex;align-items:center;gap:1rem">
+      <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
         <div class="muted">Hi-Res + DVR &rarr; Picture-in-Picture &rarr; MP4</div>
+        <span
+          v-if="encodeInfo"
+          class="encode-pill"
+          :class="encodeInfo.primary_hw ? 'encode-pill--gpu' : 'encode-pill--cpu'"
+          :title="encodeTooltip"
+        >
+          Render: {{ encodeInfo.label_short }}
+          <span class="encode-pill__detail">
+            · H.264 {{ encodeInfo.h264.encoder }} · HEVC {{ encodeInfo.h265.encoder }}
+          </span>
+        </span>
         <button
           class="ghost danger"
           :disabled="!hasAnyState"
@@ -122,15 +133,22 @@
               <em>frame-genau</em> kontrollieren und ggf. nochmal nachschneiden.
             </li>
           </ol>
+          <p v-if="hiresFiles.length > 1" class="muted" style="margin:.5rem 0 0;line-height:1.45;font-size:.88rem">
+            <strong>Hi-Res:</strong> Die Vorschau zeigt nur den <strong>ersten</strong> Teil (Reihenfolge oben) — sofort, ohne Merge-Transcode.
+            Start- und Endzeiten gelten für die <strong>gesamte</strong> Kette (Summe der Dauer aus Metadaten); der Export fügt alle Teile wie bisher zusammen.
+            Spulen und „Start/Ende hier“ nur bis zum Ende dieses ersten Teils; Zeiten danach per Eingabefeld oder Ende offen lassen (bis zum letzten Teil).
+          </p>
         </div>
 
         <div class="row">
           <div class="col">
-            <h3>📹 Hi-Res (Drohne) {{ hiresFiles.length > 1 && !concatPreviewReady ? '— Vorschau wird vorbereitet' : '' }}</h3>
+            <h3>📹 Hi-Res (Drohne)</h3>
             <VideoTrimmer
+              :key="hiresPreviewKey"
               :src="hiresFullPreviewSrc"
               v-model="hiresTrim"
-              :duration="hiresDuration"
+              :duration="hiresTrimTimelineDuration"
+              :playback-max="hiresFiles.length > 1 ? hiresDuration : 0"
               @duration="d => hiresDuration = d"
             />
           </div>
@@ -296,29 +314,57 @@ const codec = ref('h264')
 const jobId = ref('')
 const renderError = ref('')
 
-const concatPreviewHash = ref(null)
-const concatPreviewStatus = ref('idle') // idle | pending | ready | failed | missing
-let concatPollGen = 0
+/** GET /api/encoding — welche FFmpeg-Encoder der Container nutzt (GPU vs CPU). */
+const encodeInfo = ref(null)
+
+const encodeTooltip = computed(() => {
+  const e = encodeInfo.value
+  if (!e) return ''
+  const forced = e.force_cpu_env ? 'FORCE_FFMPEG_CPU erzwingt Software-Encoding. ' : ''
+  return `${forced}FFmpeg im Backend: H.264=${e.h264.encoder} (${e.h264.hardware ? 'Hardware' : 'CPU'}), HEVC=${e.h265.encoder} (${e.h265.hardware ? 'Hardware' : 'CPU'}). Der Celery-Worker verwendet dieselbe Logik.`
+})
+
+async function loadEncodingInfo() {
+  try {
+    encodeInfo.value = await api.encodingInfo()
+  } catch {
+    encodeInfo.value = null
+  }
+}
 
 const hasAnyState = computed(() =>
   hiresFiles.value.length > 0 || !!dvrFile.value || !!audioFile.value || !!jobId.value
 )
 
-const concatPreviewReady = computed(() => {
-  if (hiresFiles.value.length <= 1) return true
-  return concatPreviewStatus.value === 'ready'
-})
-
+/** First Hi-Res chunk (list order) for instant Trim-preview; export still uses all chunks. */
 const hiresFullPreviewSrc = computed(() => {
   const files = hiresFiles.value
   if (!files.length) return ''
-  if (files.length === 1) return bestSrc(files[0])
-  if (!concatPreviewHash.value || concatPreviewStatus.value !== 'ready') return ''
-  return api.concatPreviewUrl(concatPreviewHash.value)
+  return bestSrc(files[0])
+})
+
+/** Remount when order/first file/src changes. */
+const hiresPreviewKey = computed(
+  () => `${hiresFiles.value.map((f) => f.file_id).join(',')}|${hiresFullPreviewSrc.value}`,
+)
+
+/**
+ * Trim slider timeline = one merged Hi-Res (sum of ffprobe durations from API).
+ * Playback uses only the first chunk (`hiresDuration` + playbackMax on VideoTrimmer).
+ */
+const hiresTrimTimelineDuration = computed(() => {
+  const files = hiresFiles.value
+  if (!files.length) return 0
+  if (files.length === 1) {
+    return hiresDuration.value || files[0].duration || 0
+  }
+  let s = 0
+  for (const f of files) s += f.duration || 0
+  return s > 0 ? s : hiresDuration.value || 0
 })
 
 const effectiveHiresEnd = computed(
-  () => hiresTrim.value.end ?? hiresDuration.value ?? 0,
+  () => hiresTrim.value.end ?? hiresTrimTimelineDuration.value ?? 0,
 )
 const effectiveDvrEnd = computed(
   () => dvrTrim.value.end ?? dvrDuration.value ?? 0,
@@ -337,43 +383,6 @@ function formatTimeFull(s) {
   return `${m}:${sec.padStart(6, '0')}`
 }
 
-watch(
-  hiresFiles,
-  async (files) => {
-    if (files.length <= 1) {
-      concatPreviewHash.value = null
-      concatPreviewStatus.value = files.length ? 'ready' : 'idle'
-      concatPollGen++
-      return
-    }
-    const myGen = ++concatPollGen
-    try {
-      const res = await api.startConcatPreview(files.map((f) => f.file_id))
-      if (myGen !== concatPollGen) return
-      concatPreviewHash.value = res.hash
-      concatPreviewStatus.value = res.status === 'ready' ? 'ready' : 'pending'
-      if (res.status === 'ready') return
-      while (myGen === concatPollGen) {
-        await new Promise((r) => setTimeout(r, 1500))
-        const st = await api.concatPreviewStatus(res.hash)
-        if (myGen !== concatPollGen) return
-        concatPreviewStatus.value = st.status
-        if (
-          st.status === 'ready'
-          || st.status === 'failed'
-          || st.status === 'missing'
-          || st.error
-        ) {
-          break
-        }
-      }
-    } catch {
-      if (myGen === concatPollGen) concatPreviewStatus.value = 'failed'
-    }
-  },
-  { deep: true },
-)
-
 function bestSrc(f) {
   if (!f) return ''
   if (f.browser_playable) return api.rawUrl(f.file_id)  // codec the browser can decode
@@ -388,13 +397,22 @@ const audioRawSrc = computed(() => {
 
 const canRender = computed(() => hiresFiles.value.length > 0 && !!dvrFile.value)
 
+/** Kleinster Dateiname zuerst (localeCompare, numerische Teilstrings: part2 vor part10). */
+function sortHiresFilesByFilename(files) {
+  return [...files].sort((a, b) =>
+    (a.filename || '').localeCompare(b.filename || '', undefined, { numeric: true, sensitivity: 'base' }),
+  )
+}
+
 function addHires(f) {
   hiresFiles.value.push(f)
+  hiresFiles.value = sortHiresFilesByFilename(hiresFiles.value)
   pollPreview(f)
-  // First chunk seeds default output resolution.
-  if (hiresFiles.value.length === 1 && f.width && f.height) {
-    outputWidth.value = f.width
-    outputHeight.value = f.height
+  // First chunk (nach Sortierung) setzt Auflösung bei nur einem Teil.
+  const first = hiresFiles.value[0]
+  if (hiresFiles.value.length === 1 && first?.width && first?.height) {
+    outputWidth.value = first.width
+    outputHeight.value = first.height
     resolutionPreset.value = 'auto'
   }
 }
@@ -435,6 +453,15 @@ async function pollPreview(f) {
     } catch { /* keep polling */ }
   }
 }
+
+watch(
+  () => hiresFiles.value[0]?.file_id ?? '',
+  (id) => {
+    if (!id) return
+    const f = hiresFiles.value[0]
+    if (f) pollPreview(f)
+  },
+)
 
 function applyPreset() {
   const presets = {
@@ -570,7 +597,7 @@ async function restoreSession() {
   const dvrInfo = await verify(saved.dvr)
   const audioInfo = await verify(saved.audio)
 
-  hiresFiles.value = hiresInfos
+  hiresFiles.value = sortHiresFilesByFilename(hiresInfos)
   dvrFile.value = dvrInfo
   audioFile.value = audioInfo
 
@@ -617,10 +644,6 @@ async function resetAll() {
     return
   }
 
-  concatPollGen++
-  concatPreviewHash.value = null
-  concatPreviewStatus.value = 'idle'
-
   hiresFiles.value = []
   dvrFile.value = null
   audioFile.value = null
@@ -641,5 +664,8 @@ async function resetAll() {
   try { localStorage.removeItem(STORAGE_KEY) } catch { /* ignore */ }
 }
 
-onMounted(() => { restoreSession() })
+onMounted(() => {
+  restoreSession()
+  loadEncodingInfo()
+})
 </script>

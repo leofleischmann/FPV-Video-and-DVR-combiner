@@ -94,6 +94,14 @@ async def health() -> dict:
     return {"ok": True}
 
 
+@app.get("/api/encoding")
+async def encoding_status() -> dict:
+    """Which FFmpeg encoders this API process selected (mirrors worker if same GPU setup)."""
+    from app.hw_encode import encoding_public_info
+
+    return encoding_public_info()
+
+
 @app.post("/api/reset-workspace")
 async def reset_workspace() -> dict:
     """Delete all uploads, committed files, previews, rendered outputs, and temp work dirs."""
@@ -101,7 +109,13 @@ async def reset_workspace() -> dict:
         if d.is_dir():
             shutil.rmtree(d)
         d.mkdir(parents=True, exist_ok=True)
-    return {"ok": True}
+    # Redis persists the Celery broker queue — drop stale tasks that reference deleted files.
+    purged = None
+    try:
+        purged = celery_app.control.purge()
+    except Exception:
+        pass
+    return {"ok": True, "purged_tasks": purged}
 
 
 # ---------------------------------------------------------------------------
