@@ -183,6 +183,10 @@
           :dvr-src="dvrPreviewSrc"
           :output-width="outputWidth || 1920"
           :output-height="outputHeight || 1080"
+          :hires-trim="hiresTrim"
+          :dvr-trim="dvrTrim"
+          :hires-duration="hiresDuration"
+          :dvr-duration="dvrDuration"
           v-model="pip"
         />
 
@@ -385,4 +389,137 @@ function formatDuration(s) {
 watch(hiresFiles, () => {
   if (resolutionPreset.value === 'auto') applyPreset()
 }, { deep: true })
+
+// ---------------------------------------------------------------------------
+// Session persistence: keep uploaded files + UI settings across reloads.
+// On mount we re-fetch each FileInfo from the backend so we don't reference
+// files that the user (or a Reset) deleted on the server side.
+// ---------------------------------------------------------------------------
+function snapshot() {
+  return {
+    hires: hiresFiles.value.map(f => f.file_id),
+    dvr: dvrFile.value ? dvrFile.value.file_id : null,
+    audio: audioFile.value ? audioFile.value.file_id : null,
+    hiresTrim: hiresTrim.value,
+    dvrTrim: dvrTrim.value,
+    audioTrim: audioTrim.value,
+    pip: pip.value,
+    resolutionPreset: resolutionPreset.value,
+    outputWidth: outputWidth.value,
+    outputHeight: outputHeight.value,
+    codec: codec.value,
+    jobId: jobId.value || null,
+  }
+}
+
+let restoring = true
+function persist() {
+  if (restoring) return
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot()))
+  } catch { /* quota exceeded etc — non-fatal */ }
+}
+
+watch(
+  [
+    hiresFiles, dvrFile, audioFile,
+    hiresTrim, dvrTrim, audioTrim,
+    pip,
+    resolutionPreset, outputWidth, outputHeight, codec,
+    jobId,
+  ],
+  persist,
+  { deep: true },
+)
+
+async function restoreSession() {
+  let saved
+  try {
+    saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null')
+  } catch { saved = null }
+  if (!saved) { restoring = false; return }
+
+  // Verify each file still exists on the backend; drop dead references.
+  const verify = async (fid) => {
+    if (!fid) return null
+    try { return await api.getFile(fid) } catch { return null }
+  }
+
+  const hiresInfos = (await Promise.all((saved.hires || []).map(verify))).filter(Boolean)
+  const dvrInfo = await verify(saved.dvr)
+  const audioInfo = await verify(saved.audio)
+
+  hiresFiles.value = hiresInfos
+  dvrFile.value = dvrInfo
+  audioFile.value = audioInfo
+
+  if (saved.hiresTrim) hiresTrim.value = saved.hiresTrim
+  if (saved.dvrTrim) dvrTrim.value = saved.dvrTrim
+  if (saved.audioTrim) audioTrim.value = saved.audioTrim
+  if (saved.pip) pip.value = saved.pip
+  if (saved.resolutionPreset) resolutionPreset.value = saved.resolutionPreset
+  if (saved.outputWidth) outputWidth.value = saved.outputWidth
+  if (saved.outputHeight) outputHeight.value = saved.outputHeight
+  if (saved.codec) codec.value = saved.codec
+
+  // Re-attach to an in-flight render job if it's still around.
+  if (saved.jobId) {
+    try {
+      const status = await api.getJob(saved.jobId)
+      // Only resume PENDING/STARTED/PROGRESS — anything terminal we discard
+      // so the user lands on the upload screen, not on stale "Fertig" UI.
+      if (['PENDING', 'STARTED', 'PROGRESS'].includes(status.state)) {
+        jobId.value = saved.jobId
+      }
+    } catch { /* job gone — ignore */ }
+  }
+
+  // Resume preview-polling for files that aren't yet browser-playable.
+  hiresFiles.value.forEach(pollPreview)
+  if (dvrFile.value) pollPreview(dvrFile.value)
+
+  restoring = false
+}
+
+async function resetAll() {
+  if (!confirm('Alle hochgeladenen Dateien und Einstellungen werden gelöscht. Fortfahren?')) {
+    return
+  }
+  // Snapshot the IDs first so we can fire deletes in parallel without races.
+  const fileIds = [
+    ...hiresFiles.value.map(f => f.file_id),
+    ...(dvrFile.value ? [dvrFile.value.file_id] : []),
+    ...(audioFile.value ? [audioFile.value.file_id] : []),
+  ]
+  const oldJobId = jobId.value
+
+  // Reset UI state immediately.
+  hiresFiles.value = []
+  dvrFile.value = null
+  audioFile.value = null
+  hiresTrim.value = { start: 0, end: null }
+  dvrTrim.value = { start: 0, end: null }
+  audioTrim.value = { start: 0, end: null }
+  hiresDuration.value = 0
+  dvrDuration.value = 0
+  audioDuration.value = 0
+  pip.value = { x: 0.02, y: 0.02, width: 0.30 }
+  resolutionPreset.value = 'auto'
+  outputWidth.value = 1920
+  outputHeight.value = 1080
+  codec.value = 'h264'
+  jobId.value = ''
+  renderError.value = ''
+
+  try { localStorage.removeItem(STORAGE_KEY) } catch { /* ignore */ }
+
+  // Server-side cleanup, fire-and-forget — failures are non-fatal because
+  // the user's UI is already clean.
+  await Promise.allSettled([
+    ...fileIds.map(fid => api.deleteFile(fid)),
+    ...(oldJobId ? [fetch(`/api/jobs/${oldJobId}`, { method: 'DELETE' })] : []),
+  ])
+}
+
+onMounted(() => { restoreSession() })
 </script>

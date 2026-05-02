@@ -239,7 +239,12 @@ def _range_response(path: Path, request: Request, media_type: str) -> Response:
     range_header = request.headers.get("range") or request.headers.get("Range")
 
     if range_header is None:
-        return FileResponse(path, media_type=media_type)
+        # Advertise byte-range support so browsers know seeking is possible.
+        return FileResponse(
+            path,
+            media_type=media_type,
+            headers={"Accept-Ranges": "bytes", "Content-Length": str(file_size)},
+        )
 
     # bytes=START-END
     try:
