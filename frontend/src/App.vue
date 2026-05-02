@@ -27,10 +27,10 @@
     </header>
 
     <div class="steps">
-      <div class="step" :class="stepClass(1)">1 · Upload</div>
-      <div class="step" :class="stepClass(2)">2 · Trim &amp; Sync</div>
-      <div class="step" :class="stepClass(3)">3 · PiP &amp; Settings</div>
-      <div class="step" :class="stepClass(4)">4 · Render</div>
+      <div class="step" :class="stepClass(1)">1 · Dateien</div>
+      <div class="step" :class="stepClass(2)">2 · Sync</div>
+      <div class="step" :class="stepClass(3)">3 · Layout</div>
+      <div class="step" :class="stepClass(4)">4 · Export</div>
     </div>
 
     <!-- STEP 1: UPLOAD -->
@@ -113,36 +113,18 @@
 
       <!-- STEP 2: TRIM -->
       <div v-if="hiresFiles.length && dvrFile" class="panel">
-        <h2>Trim &amp; Synchronisation</h2>
-        <div class="muted" style="margin-bottom: .75rem; line-height: 1.5">
-          <strong style="color: var(--text)">Workflow:</strong>
-          <ol style="margin: .25rem 0 .25rem 1.25rem; padding: 0">
-            <li>
-              Spule beide Videos auf <strong>denselben realen Moment</strong>
-              (z.&nbsp;B. Motorstart, Klick, Take-off) und drücke jeweils
-              <span class="kbd">Sync-Start setzen</span>.
-              Damit ist <strong>t = 0</strong> der Render-Zeitachse definiert.
-            </li>
-            <li>
-              Spule beide Videos zum gewünschten <strong>Endzeitpunkt</strong> und
-              drücke <span class="kbd">Sync-Ende setzen</span>. Daraus ergibt sich
-              die Render-Dauer.
-            </li>
-            <li>
-              Im nächsten Schritt kannst du das Sync-Ergebnis im PiP-Preview
-              <em>frame-genau</em> kontrollieren und ggf. nochmal nachschneiden.
-            </li>
-          </ol>
-          <p v-if="hiresFiles.length > 1" class="muted" style="margin:.5rem 0 0;line-height:1.45;font-size:.88rem">
-            <strong>Hi-Res:</strong> Die Vorschau zeigt nur den <strong>ersten</strong> Teil (Reihenfolge oben) — sofort, ohne Merge-Transcode.
-            Start- und Endzeiten gelten für die <strong>gesamte</strong> Kette (Summe der Dauer aus Metadaten); der Export fügt alle Teile wie bisher zusammen.
-            Spulen und „Start/Ende hier“ nur bis zum Ende dieses ersten Teils; Zeiten danach per Eingabefeld oder Ende offen lassen (bis zum letzten Teil).
-          </p>
-        </div>
+        <h2 style="display:flex;align-items:center;gap:.5rem;margin-bottom:.85rem">
+          <span style="font-size:1.35rem;line-height:1" aria-hidden="true">⇄</span>
+          <span>Sync</span>
+        </h2>
 
-        <div class="row">
-          <div class="col">
-            <h3>📹 Hi-Res (Drohne)</h3>
+        <div class="row sync-columns">
+          <div class="col trim-col trim-col--drone">
+            <div class="trim-col__head">
+              <span class="trim-col__stripe trim-col__stripe--drone" aria-hidden="true" />
+              <h3 style="margin:0;text-transform:none;letter-spacing:0;font-size:1rem;color:var(--text)">Drohne</h3>
+              <span v-if="hiresFiles.length > 1" class="trim-col__badge">{{ hiresFiles.length }}</span>
+            </div>
             <VideoTrimmer
               :key="hiresPreviewKey"
               :src="hiresFullPreviewSrc"
@@ -152,8 +134,11 @@
               @duration="d => hiresDuration = d"
             />
           </div>
-          <div class="col">
-            <h3>🥽 DVR (Brille)</h3>
+          <div class="col trim-col trim-col--goggles">
+            <div class="trim-col__head">
+              <span class="trim-col__stripe trim-col__stripe--goggles" aria-hidden="true" />
+              <h3 style="margin:0;text-transform:none;letter-spacing:0;font-size:1rem;color:var(--text)">Brille</h3>
+            </div>
             <VideoTrimmer
               :src="dvrPreviewSrc"
               v-model="dvrTrim"
@@ -163,40 +148,41 @@
           </div>
         </div>
 
-        <div class="panel" style="margin-top:1rem;background:var(--panel-2);box-shadow:none">
-          <div style="display:flex;flex-wrap:wrap;gap:1.5rem;align-items:center">
-            <div>
-              <div class="muted" style="font-size:.8rem">Hi-Res-Bereich</div>
-              <div style="font-variant-numeric: tabular-nums">
-                {{ formatTimeFull(hiresTrim.start) }} → {{ formatTimeFull(effectiveHiresEnd) }}
-                <span class="muted">({{ formatTimeFull(effectiveHiresEnd - hiresTrim.start) }})</span>
-              </div>
+        <div class="sync-strip">
+          <div class="sync-strip__cell">
+            <span class="sync-strip__glyph" aria-hidden="true">📹</span>
+            <div class="sync-strip__nums">
+              {{ formatTimeFull(hiresTrim.start) }}→{{ formatTimeFull(effectiveHiresEnd) }}
+              <span class="muted" style="display:block;font-size:.78rem;margin-top:.15rem">{{ formatTimeFull(effectiveHiresEnd - hiresTrim.start) }}</span>
             </div>
-            <div>
-              <div class="muted" style="font-size:.8rem">DVR-Bereich</div>
-              <div style="font-variant-numeric: tabular-nums">
-                {{ formatTimeFull(dvrTrim.start) }} → {{ formatTimeFull(effectiveDvrEnd) }}
-                <span class="muted">({{ formatTimeFull(effectiveDvrEnd - dvrTrim.start) }})</span>
-              </div>
+          </div>
+          <div class="sync-strip__cell">
+            <span class="sync-strip__glyph" aria-hidden="true">🥽</span>
+            <div class="sync-strip__nums">
+              {{ formatTimeFull(dvrTrim.start) }}→{{ formatTimeFull(effectiveDvrEnd) }}
+              <span class="muted" style="display:block;font-size:.78rem;margin-top:.15rem">{{ formatTimeFull(effectiveDvrEnd - dvrTrim.start) }}</span>
             </div>
-            <div>
-              <div class="muted" style="font-size:.8rem">Sync-Offset (DVR − Hi-Res)</div>
-              <div style="font-variant-numeric: tabular-nums">
-                {{ syncOffset >= 0 ? '+' : '' }}{{ syncOffset.toFixed(3) }} s
-              </div>
+          </div>
+          <div class="sync-strip__cell">
+            <span class="sync-strip__glyph" aria-hidden="true">⇄</span>
+            <div class="sync-strip__nums">
+              {{ syncOffset >= 0 ? '+' : '' }}{{ syncOffset.toFixed(2) }}s
             </div>
-            <div>
-              <div class="muted" style="font-size:.8rem">Render-Dauer (Output)</div>
-              <div style="font-variant-numeric: tabular-nums; color: var(--accent-2); font-weight:600">
-                {{ formatTimeFull(outputDuration) }}
-              </div>
+          </div>
+          <div class="sync-strip__cell">
+            <span class="sync-strip__glyph" aria-hidden="true">⏱</span>
+            <div class="sync-strip__nums sync-strip__nums--accent">
+              {{ formatTimeFull(outputDuration) }}
             </div>
           </div>
         </div>
 
         <div v-if="audioFile" class="row" style="margin-top:1rem">
-          <div class="col">
-            <h3>🎵 Audio-Trim (MP3)</h3>
+          <div class="col trim-col trim-col--audio">
+            <div class="trim-col__head">
+              <span class="trim-col__stripe trim-col__stripe--audio" aria-hidden="true" />
+              <h3 style="margin:0;text-transform:none;letter-spacing:0;font-size:1rem;color:var(--text)">Audio</h3>
+            </div>
             <div>
               <audio :src="audioRawSrc" controls preload="metadata" style="width:100%"
                 @loadedmetadata="onAudioMeta" />
@@ -212,7 +198,10 @@
 
       <!-- STEP 3: PIP + RENDER SETTINGS -->
       <div v-if="hiresFiles.length && dvrFile" class="panel">
-        <h2>Layout &amp; Render-Einstellungen</h2>
+        <h2 style="display:flex;align-items:center;gap:.5rem">
+          <span style="font-size:1.25rem;line-height:1" aria-hidden="true">▣</span>
+          <span>Layout</span>
+        </h2>
 
         <div class="row" style="margin-bottom: 1rem">
           <div class="col" style="max-width:200px">
@@ -236,9 +225,9 @@
           </div>
           <div class="col" style="max-width:160px">
             <label>Codec</label>
-            <select v-model="codec">
-              <option value="h264">H.264 (libx264)</option>
-              <option value="h265">H.265 (libx265)</option>
+            <select v-model="codec" title="Encoder siehe Badge „Render“ oben (GPU/CPU)">
+              <option value="h264">H.264 · AVC</option>
+              <option value="h265">H.265 · HEVC</option>
             </select>
           </div>
         </div>

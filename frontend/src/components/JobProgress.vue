@@ -90,11 +90,30 @@
           </div>
         </div>
 
-        <div style="margin-top:.75rem;display:flex;gap:.5rem;flex-wrap:wrap">
+        <div style="margin-top:.75rem;display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
           <a :href="downloadUrl" :download="`fpv_pip_${jobId.slice(0,8)}.mp4`">
             <button class="primary">Download MP4</button>
           </a>
           <button class="ghost" @click="$emit('reset')">Neuen Render starten</button>
+        </div>
+
+        <div
+          style="margin-top:1rem;padding:.75rem 1rem;background:var(--panel-2);border-radius:8px;border:1px solid rgba(255,255,255,.06);font-size:.88rem;line-height:1.5"
+        >
+          <strong style="color:var(--text)">Schneller Zugriff (lokal / Docker)</strong>
+          <p class="muted" style="margin:.35rem 0 .5rem">
+            Der Browser lädt die Datei noch einmal über das Netzwerk — bei großen MP4 kann das dauern.
+            Auf dem Rechner liegt dieselbe Datei oft schon im Projektordner:
+          </p>
+          <code style="display:block;padding:.4rem .55rem;background:rgba(0,0,0,.25);border-radius:4px;word-break:break-all;font-size:.82rem">
+            {{ hostRelativeOutputPath }}
+          </code>
+          <div style="margin-top:.5rem;display:flex;gap:.4rem;flex-wrap:wrap;align-items:center">
+            <button type="button" class="ghost" style="font-size:.85rem" @click="copyOutputPath">
+              Pfad in Zwischenablage
+            </button>
+            <span v-if="copyFeedback" class="muted" style="font-size:.82rem">{{ copyFeedback }}</span>
+          </div>
         </div>
       </div>
       <div v-else-if="status.state === 'FAILURE'" style="margin-top:.5rem">
@@ -134,6 +153,28 @@ const stateLabel = computed(() => {
 
 const downloadUrl = computed(() => api.downloadUrl(props.jobId))
 const previewUrl = computed(() => api.jobPreviewUrl(props.jobId))
+/** Relativ zum Projektroot — gleicher Bind-Mount wie im Docker-`data`-Volume. */
+const hostRelativeOutputPath = computed(
+  () => `data/outputs/${props.jobId}.mp4`,
+)
+
+const copyFeedback = ref('')
+
+async function copyOutputPath() {
+  copyFeedback.value = ''
+  try {
+    await navigator.clipboard.writeText(hostRelativeOutputPath.value)
+    copyFeedback.value = 'Kopiert.'
+    window.setTimeout(() => {
+      copyFeedback.value = ''
+    }, 2500)
+  } catch {
+    copyFeedback.value = 'Kopieren nicht möglich (Browser).'
+    window.setTimeout(() => {
+      copyFeedback.value = ''
+    }, 3500)
+  }
+}
 
 const resultVideoEl = ref(null)
 const playerWrap = ref(null)
