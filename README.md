@@ -7,9 +7,20 @@ Turn your **drone recording** and **goggles recording** into **one MP4**: drone 
 ## What you’ll do
 
 1. Add your **drone** video(s) and your **goggles** video.
+
+![File selection: drone and goggles videos](img/Files.png)
+
 2. **Sync** them so the same moment in real life lines up on both clips.
+
+![Sync: aligning both recordings in time](img/Sync.png)
+
 3. Choose **layout** (where the small goggles window sits and how big it is).
+
+![Layout: position and size of the goggles overlay](img/Layout.png)
+
 4. **Export** and download — or grab the file from the project folder if the browser download is slow.
+
+![Export: render and download the combined video](img/Export.png)
 
 Optional: add an **MP3** as the soundtrack. If you skip music, the drone’s audio is used.
 
