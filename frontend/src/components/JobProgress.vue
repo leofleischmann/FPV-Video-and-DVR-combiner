@@ -40,10 +40,14 @@ let timer = null
 
 const stateLabel = computed(() => {
   const s = status.value?.state
+  const stage = status.value?.stage
   switch (s) {
-    case 'PENDING': return 'Warten auf Worker …'
+    case 'PENDING': return 'In Warteschlange (Worker noch belegt) …'
     case 'STARTED': return 'Job startet …'
-    case 'PROGRESS': return 'Rendere …'
+    case 'PROGRESS':
+      if (stage === 'preparing') return 'Hi-Res wird vorbereitet (Concat) …'
+      if (stage === 'rendering') return 'Rendere PiP …'
+      return `Arbeite … (${stage || ''})`
     case 'SUCCESS': return 'Fertig!'
     case 'FAILURE': return 'Fehlgeschlagen'
     default: return s || ''

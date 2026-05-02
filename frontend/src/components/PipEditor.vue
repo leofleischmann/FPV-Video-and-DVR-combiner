@@ -16,11 +16,11 @@
         @click="togglePlay"
       />
       <div v-else class="base" style="display:flex;align-items:center;justify-content:center;color:#888;height:100%;">
-        Hi-Res Vorschau wird vorbereitet …
+        Hi-Res Vorschau wird gerade generiert …
       </div>
 
       <div
-        v-if="dvrSrc && stageW > 0"
+        v-if="stageW > 0"
         class="pip-overlay"
         :class="{ dragging: isDragging }"
         :style="{
@@ -33,6 +33,7 @@
         @touchstart.passive="startDrag"
       >
         <video
+          v-if="dvrSrc"
           ref="dvrEl"
           :src="dvrSrc"
           muted
@@ -40,6 +41,12 @@
           preload="metadata"
           @loadedmetadata="onDvrMeta"
         />
+        <div
+          v-else
+          style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:#aaa;font-size:.8rem;text-align:center;padding:.25rem;line-height:1.2"
+        >
+          DVR-Vorschau<br/>wird transcodiert …
+        </div>
         <div
           class="resize-handle"
           @mousedown.stop="startResize"

@@ -12,7 +12,7 @@ import shlex
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple  # noqa: F401
 
 
 ProgressCb = Callable[[float, str], None]
@@ -61,32 +61,60 @@ def ffprobe(path: Path) -> ProbeInfo:
     return ProbeInfo(width, height, duration, has_audio, video_codec)
 
 
-def make_preview(src: Path, dst: Path) -> None:
-    """Generate a small H.264 MP4 preview that any browser can play.
+BROWSER_FRIENDLY_CODECS = {"h264", "avc", "avc1"}
 
-    Used so that the user can scrub uploaded `.mov` / large `.mp4` files in the
-    browser.  Faststart so it streams.  720p cap, 24 fps, AAC if audio exists.
+
+def is_browser_playable(probe: ProbeInfo) -> bool:
+    """Heuristic: H.264 in MP4/MOV plays in every modern browser.
+
+    HEVC/H.265 (typical for DJI Goggles), VP9, AV1, MPEG-4 etc. need a
+    transcoded preview — even though Chrome/Edge sometimes play HEVC, we
+    don't want to depend on it.
+    """
+    return probe.video_codec.lower() in BROWSER_FRIENDLY_CODECS
+
+
+def _capture_run(cmd: List[str]) -> None:
+    """Run a short ffmpeg command, surface stderr if it fails."""
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(f"ffmpeg failed: {proc.stderr[-1500:]}")
+
+
+def make_preview(src: Path, dst: Path) -> None:
+    """Generate a small MP4 preview the browser can play and seek.
+
+    We optimise hard for *speed*, not quality — the user only needs to find
+    trim points.  Settings:
+      * 480p cap, 24 fps  (cuts the encode workload by ~4× vs 720p)
+      * libx264 ultrafast / crf 32
+      * no audio (the player is muted anyway)
+      * +faststart so the moov atom is at the front for instant seeking
     """
     dst.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
         "ffmpeg", "-y", "-i", str(src),
-        "-vf", "scale='min(1280,iw)':-2,fps=24",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "28",
+        "-vf", "scale='min(854,iw)':-2,fps=24",
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "32",
         "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-b:a", "96k", "-ac", "2",
+        "-an",
         "-movflags", "+faststart",
         str(dst),
     ]
-    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    _capture_run(cmd)
 
 
 def concat_lossless(parts: List[Path], dst: Path) -> None:
-    """Lossless concat of equally-encoded MP4 chunks via the concat demuxer."""
+    """Lossless concat of equally-encoded MP4 chunks via the concat demuxer.
+
+    Raises with the captured stderr tail so we can actually diagnose failures
+    (e.g. mismatched codec params between chunks → caller falls back to
+    re-encoding).
+    """
     dst.parent.mkdir(parents=True, exist_ok=True)
     list_file = dst.with_suffix(".txt")
     with list_file.open("w", encoding="utf-8") as f:
         for p in parts:
-            # Concat demuxer requires escaping single quotes.
             safe = str(p).replace("'", r"'\''")
             f.write(f"file '{safe}'\n")
     cmd = [
@@ -97,11 +125,13 @@ def concat_lossless(parts: List[Path], dst: Path) -> None:
         "-movflags", "+faststart",
         str(dst),
     ]
-    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
         list_file.unlink()
     except OSError:
         pass
+    if proc.returncode != 0:
+        raise RuntimeError(f"concat -c copy failed: {proc.stderr[-1500:]}")
 
 
 def _run_with_progress(
@@ -112,7 +142,16 @@ def _run_with_progress(
     stage_start: float,
     stage_end: float,
 ) -> None:
-    """Run ffmpeg, parse `-progress pipe:1`, map to [stage_start..stage_end]."""
+    """Run ffmpeg, parse `-progress pipe:1`, map to [stage_start..stage_end].
+
+    stderr is *also* streamed to the worker's stdout (without flooding it) so
+    docker compose logs show ffmpeg progress lines in real time — invaluable
+    when something hangs.
+    """
+    import sys
+    import threading
+
+    print(f"[ffmpeg] {shlex.join(cmd)}", flush=True)
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
@@ -120,6 +159,22 @@ def _run_with_progress(
         text=True,
         bufsize=1,
     )
+
+    stderr_buf: List[str] = []
+
+    def pump_stderr() -> None:
+        assert proc.stderr is not None
+        for line in proc.stderr:
+            stderr_buf.append(line)
+            # Cap retained tail so we don't balloon RAM on long renders.
+            if len(stderr_buf) > 500:
+                del stderr_buf[: len(stderr_buf) - 500]
+            sys.stdout.write(f"[ffmpeg-stderr] {line}")
+            sys.stdout.flush()
+
+    t = threading.Thread(target=pump_stderr, daemon=True)
+    t.start()
+
     last_us = 0
     assert proc.stdout is not None
     for line in proc.stdout:
@@ -131,7 +186,7 @@ def _run_with_progress(
                 val = int(line.split("=", 1)[1])
             except ValueError:
                 continue
-            # ffmpeg has historically used out_time_ms but actually emitted µs.
+            # ffmpeg historically used `out_time_ms` but actually emits µs.
             last_us = val
             if total_seconds > 0:
                 frac = max(0.0, min(1.0, (last_us / 1_000_000.0) / total_seconds))
@@ -140,12 +195,12 @@ def _run_with_progress(
         elif line == "progress=end":
             progress_cb(stage_end, stage)
             break
+
     rc = proc.wait()
+    t.join(timeout=2)
     if rc != 0:
-        err = ""
-        if proc.stderr is not None:
-            err = proc.stderr.read() or ""
-        raise RuntimeError(f"ffmpeg failed (rc={rc}): {err[-2000:]}\nCMD: {shlex.join(cmd)}")
+        err = "".join(stderr_buf)[-2000:]
+        raise RuntimeError(f"ffmpeg failed (rc={rc}): {err}\nCMD: {shlex.join(cmd)}")
 
 
 def render_pip(
@@ -269,18 +324,34 @@ def render_pip(
     _run_with_progress(cmd, out_duration, progress_cb, "rendering", stage_start, stage_end)
 
 
-def re_encode_normalize(src: Path, dst: Path) -> None:
-    """Re-encode a single hi-res chunk to a known-uniform format so that the
-    concat demuxer can be used safely.  Only used as a fallback if `concat -c copy`
-    fails (e.g. mismatching codec params between chunks).
+def re_encode_normalize(
+    src: Path,
+    dst: Path,
+    *,
+    progress_cb: Optional[ProgressCb] = None,
+    stage_label: str = "normalizing",
+    stage_start: float = 0.0,
+    stage_end: float = 1.0,
+) -> None:
+    """Re-encode a chunk to a known-uniform format so the concat demuxer can be
+    used safely. Only used as a fallback when `concat -c copy` fails.
+
+    Reports progress via the standard ffmpeg `-progress pipe:1` stream so the
+    user gets feedback during what's otherwise a many-minute step.
     """
     dst.parent.mkdir(parents=True, exist_ok=True)
+    info = ffprobe(src)
+    duration = max(0.001, info.duration or 0.001)
     cmd = [
-        "ffmpeg", "-y", "-i", str(src),
+        "ffmpeg", "-y",
+        "-progress", "pipe:1", "-nostats",
+        "-i", str(src),
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
         "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "192k", "-ac", "2",
         "-movflags", "+faststart",
         str(dst),
     ]
-    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if progress_cb is None:
+        progress_cb = lambda *_: None  # noqa: E731
+    _run_with_progress(cmd, duration, progress_cb, stage_label, stage_start, stage_end)

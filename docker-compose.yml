@@ -22,7 +22,9 @@ services:
   worker:
     build: ./backend
     restart: unless-stopped
-    command: celery -A app.celery_app worker --loglevel=info --concurrency=1
+    # concurrency=2 so a render job doesn't queue behind upload-time preview jobs.
+    # Each ffmpeg already uses multiple threads internally — keep this number small.
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=2
     environment:
       REDIS_URL: redis://redis:6379/0
       DATA_DIR: /data

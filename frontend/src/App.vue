@@ -51,6 +51,10 @@
               {{ formatBytes(dvrFile.size) }}
               <span v-if="dvrFile.width">· {{ dvrFile.width }}×{{ dvrFile.height }}</span>
               <span v-if="dvrFile.duration">· {{ formatDuration(dvrFile.duration) }}</span>
+              <span v-if="dvrFile.video_codec">· {{ dvrFile.video_codec }}</span>
+              <span v-if="!dvrFile.browser_playable && !dvrFile.preview_ready" style="color:var(--accent-2)">
+                · Vorschau wird generiert
+              </span>
             </div>
           </div>
           <div class="actions">
@@ -229,16 +233,14 @@ const codec = ref('h264')
 const jobId = ref('')
 const renderError = ref('')
 
-const hiresPreviewSrc = computed(() => {
-  const f = hiresFiles.value[0]
+function bestSrc(f) {
   if (!f) return ''
-  return f.preview_ready ? api.previewUrl(f.file_id) : api.rawUrl(f.file_id)
-})
-const dvrPreviewSrc = computed(() => {
-  const f = dvrFile.value
-  if (!f) return ''
-  return f.preview_ready ? api.previewUrl(f.file_id) : api.rawUrl(f.file_id)
-})
+  if (f.browser_playable) return api.rawUrl(f.file_id)  // codec the browser can decode
+  if (f.preview_ready) return api.previewUrl(f.file_id) // worker-transcoded preview
+  return ''                                             // still being generated
+}
+const hiresPreviewSrc = computed(() => bestSrc(hiresFiles.value[0]))
+const dvrPreviewSrc = computed(() => bestSrc(dvrFile.value))
 const audioRawSrc = computed(() => {
   return audioFile.value ? api.rawUrl(audioFile.value.file_id) : ''
 })
@@ -272,17 +274,21 @@ function setAudio(f) {
 }
 
 // Poll until the worker has produced a browser-friendly preview MP4.
+// Skipped entirely for files the browser can already play (H.264 source).
 async function pollPreview(f) {
-  if (f.preview_ready) return
-  for (let i = 0; i < 120; i++) {
-    await new Promise(r => setTimeout(r, 1500))
+  if (f.browser_playable || f.preview_ready) return
+  // No upper iteration cap — preview generation can legitimately take a while
+  // for HEVC sources on a busy worker.  We only stop on success or unmount.
+  while (true) {
+    await new Promise(r => setTimeout(r, 2000))
     try {
       const info = await api.getFile(f.file_id)
-      if (info.preview_ready) {
-        f.preview_ready = true
-        // Touch the array to trigger reactivity for hires preview.
+      if (info.preview_ready || info.browser_playable) {
+        Object.assign(f, info)
         if (hiresFiles.value.includes(f)) hiresFiles.value = [...hiresFiles.value]
-        if (dvrFile.value && dvrFile.value.file_id === f.file_id) dvrFile.value = { ...info }
+        if (dvrFile.value && dvrFile.value.file_id === f.file_id) {
+          dvrFile.value = { ...dvrFile.value, ...info }
+        }
         return
       }
     } catch { /* keep polling */ }

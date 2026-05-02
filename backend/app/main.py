@@ -166,6 +166,7 @@ async def complete_upload(upload_id: str) -> CompleteUploadResponse:
     _meta_path(upload_id).unlink(missing_ok=True)
 
     info = ff.ffprobe(dst)
+    browser_playable = ff.is_browser_playable(info) if meta["kind"] in ("hires", "dvr") else False
     file_info = FileInfo(
         file_id=file_id,
         filename=meta["filename"],
@@ -175,12 +176,16 @@ async def complete_upload(upload_id: str) -> CompleteUploadResponse:
         height=info.height or None,
         duration=info.duration or None,
         has_audio=info.has_audio,
+        video_codec=info.video_codec,
+        browser_playable=browser_playable,
         preview_ready=False,
     )
     _persist_file_info(file_info)
 
-    # Kick off a low-res preview in the worker so the browser can scrub.
-    if meta["kind"] in ("hires", "dvr"):
+    # Only transcode a preview if the browser can't play the raw file.
+    # H.264 sources (typical DJI drone .mp4) skip the worker entirely, which
+    # gets the user past the upload step in seconds instead of minutes.
+    if meta["kind"] in ("hires", "dvr") and not browser_playable:
         celery_app.send_task("generate_preview", args=[file_id])
 
     return CompleteUploadResponse(file=file_info)

@@ -67,18 +67,36 @@ def render_pip_job(  # noqa: PLR0913
         else:
             hires_master = work / "hires_master.mp4"
             try:
+                report(0.005, "preparing", f"Verlustfreier Concat von {len(hires_paths)} Chunks")
                 ff.concat_lossless(hires_paths, hires_master)
-            except Exception:
+                report(0.04, "preparing", "Concat fertig")
+            except Exception as concat_err:
                 # Fallback: re-encode each part to a uniform format, then concat.
-                report(0.02, "preparing", "Lossless concat fehlgeschlagen, normalisiere Chunks")
+                # This is the slow path — give the user visible progress.
+                msg = str(concat_err)[:200]
+                report(0.005, "preparing", f"Lossless concat fehlgeschlagen ({msg}), normalisiere Chunks…")
                 normalized: List[Path] = []
+                # Reserve [0.005..0.04] of the total job for normalize+concat.
+                slice_size = (0.04 - 0.005) / max(1, len(hires_paths))
                 for i, p in enumerate(hires_paths):
                     n = work / f"norm_{i:03d}.mp4"
-                    ff.re_encode_normalize(p, n)
+                    s0 = 0.005 + i * slice_size
+                    s1 = 0.005 + (i + 1) * slice_size
+
+                    def cb(p_, _stage, i_=i, n_=len(hires_paths)):
+                        report(p_, "preparing", f"Normalisiere Chunk {i_ + 1}/{n_}")
+
+                    ff.re_encode_normalize(
+                        p, n,
+                        progress_cb=cb,
+                        stage_label="preparing",
+                        stage_start=s0, stage_end=s1,
+                    )
                     normalized.append(n)
+                report(0.04, "preparing", "Concat normalisierter Chunks")
                 ff.concat_lossless(normalized, hires_master)
 
-        report(0.05, "preparing", "Hi-Res bereit")
+        report(0.05, "preparing", "Hi-Res bereit, starte Render")
 
         dvr_path = FILES_DIR / dvr_file_id
         if not dvr_path.exists():

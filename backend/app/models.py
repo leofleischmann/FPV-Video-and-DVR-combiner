@@ -11,6 +11,9 @@ class FileInfo(BaseModel):
     height: Optional[int] = None
     duration: Optional[float] = None
     has_audio: bool = False
+    video_codec: str = ""
+    # Browser can decode the raw file directly (no preview transcode needed).
+    browser_playable: bool = False
     preview_ready: bool = False
 
 

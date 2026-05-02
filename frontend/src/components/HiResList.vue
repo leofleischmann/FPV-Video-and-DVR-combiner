@@ -7,6 +7,10 @@
           {{ formatBytes(f.size) }}
           <span v-if="f.width">· {{ f.width }}×{{ f.height }}</span>
           <span v-if="f.duration">· {{ formatDuration(f.duration) }}</span>
+          <span v-if="f.video_codec">· {{ f.video_codec }}</span>
+          <span v-if="!f.browser_playable && !f.preview_ready" style="color:var(--accent-2)">
+            · Vorschau wird generiert
+          </span>
         </div>
       </div>
       <div class="order-controls">

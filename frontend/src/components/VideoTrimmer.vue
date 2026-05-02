@@ -13,7 +13,13 @@
         style="width:100%; max-height: 360px; background:#000; border-radius: 8px;"
       />
     </div>
-    <div v-else class="muted">Keine Vorschau verfügbar.</div>
+    <div
+      v-else
+      class="muted"
+      style="background:#000;border-radius:8px;padding:2rem;text-align:center;border:1px dashed var(--border)"
+    >
+      Vorschau wird gerade generiert (Transcode läuft im Worker) …
+    </div>
 
     <div style="margin-top: .75rem">
       <div class="dual-range">
