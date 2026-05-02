@@ -1,20 +1,8 @@
 <template>
   <div class="app-shell">
     <header class="header">
-      <div class="brand">FPV <span class="accent">PiP</span> Merger</div>
+      <div class="brand">FPV <span class="accent">Picture</span> Merger</div>
       <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
-        <div class="muted">Hi-Res + DVR &rarr; Picture-in-Picture &rarr; MP4</div>
-        <span
-          v-if="encodeInfo"
-          class="encode-pill"
-          :class="encodeInfo.primary_hw ? 'encode-pill--gpu' : 'encode-pill--cpu'"
-          :title="encodeTooltip"
-        >
-          Render: {{ encodeInfo.label_short }}
-          <span class="encode-pill__detail">
-            · H.264 {{ encodeInfo.h264.encoder }} · HEVC {{ encodeInfo.h265.encoder }}
-          </span>
-        </span>
         <button
           class="ghost danger"
           :disabled="!hasAnyState"
@@ -33,65 +21,63 @@
       <div class="step" :class="stepClass(4)">4 · Export</div>
     </div>
 
-    <!-- STEP 1: UPLOAD -->
+    <!-- STEP 1: UPLOAD — only drone + goggles until both are set -->
     <section v-if="!jobId">
-      <div class="panel">
-        <h2>1 · Drone footage (.mp4)</h2>
-        <p class="muted">
-          Multiple parts allowed (max ~4 GB each). They are stitched on the server when possible without re-encoding.
-        </p>
-        <FileUploader
-          label="Drop hi-res MP4 here"
-          hint="Multiple files for split recordings"
-          kind="hires"
-          accept="video/mp4"
-          :multiple="true"
-          @uploaded="addHires"
-        />
-        <HiResList
-          :files="hiresFiles"
-          @reorder="hiresFiles = $event"
-          @remove="removeHires"
-        />
-      </div>
+      <div class="upload-phase">
+        <div class="panel upload-phase__card">
+          <h2>Drone video</h2>
+          <FileUploader
+            label="Drop drone videos here"
+            hint="Several files if your recording was split"
+            kind="hires"
+            accept="video/mp4"
+            :multiple="true"
+            @uploaded="addHires"
+          />
+          <HiResList
+            :files="hiresFiles"
+            @reorder="hiresFiles = $event"
+            @remove="removeHires"
+          />
+        </div>
 
-      <div class="panel">
-        <h2>2 · Goggles / DVR (.mov)</h2>
-        <FileUploader
-          v-if="!dvrFile"
-          label="Drop goggles DVR (.mov) here"
-          kind="dvr"
-          accept="video/quicktime,.mov,video/*"
-          @uploaded="setDvr"
-        />
-        <div v-else class="file-card">
-          <div class="meta">
-            <div class="name">{{ dvrFile.filename }}</div>
-            <div class="sub">
-              {{ formatBytes(dvrFile.size) }}
-              <span v-if="dvrFile.width">· {{ dvrFile.width }}×{{ dvrFile.height }}</span>
-              <span v-if="dvrFile.duration">· {{ formatDuration(dvrFile.duration) }}</span>
-              <span v-if="dvrFile.video_codec">· {{ dvrFile.video_codec }}</span>
-              <span v-if="!dvrFile.browser_playable && !dvrFile.preview_ready" style="color:var(--accent-2)">
-                · Building preview
-              </span>
+        <div class="panel upload-phase__card">
+          <h2>Goggles recording</h2>
+          <FileUploader
+            v-if="!dvrFile"
+            label="Drop goggles video here"
+            kind="dvr"
+            accept="video/quicktime,.mov,video/*"
+            @uploaded="setDvr"
+          />
+          <div v-else class="file-card">
+            <div class="meta">
+              <div class="name">{{ dvrFile.filename }}</div>
+              <div class="sub">
+                {{ formatBytes(dvrFile.size) }}
+                <span v-if="dvrFile.width">· {{ dvrFile.width }}×{{ dvrFile.height }}</span>
+                <span v-if="dvrFile.duration">· {{ formatDuration(dvrFile.duration) }}</span>
+                <span v-if="!dvrFile.browser_playable && !dvrFile.preview_ready" style="color:var(--accent-2)">
+                  · Loading preview…
+                </span>
+              </div>
             </div>
-          </div>
-          <div class="actions">
-            <button class="ghost danger" @click="removeDvr">×</button>
+            <div class="actions">
+              <button class="ghost danger" @click="removeDvr">×</button>
+            </div>
           </div>
         </div>
       </div>
 
-      <div class="panel">
-        <h2>3 · Audio (optional, .mp3)</h2>
-        <p class="muted">
-          With an MP3, both original audio tracks are dropped and only your trimmed MP3 is used.
-          Without MP3, the drone clip keeps its audio.
-        </p>
+      <p v-if="!bothVideosReady" class="muted upload-phase__hint">
+        Add both videos here first. Then you can sync clips, choose layout and preview, and optionally add music.
+      </p>
+
+      <div v-if="bothVideosReady" class="panel">
+        <h2>Music (optional)</h2>
         <FileUploader
           v-if="!audioFile"
-          label="Drop MP3 here (optional)"
+          label="Drop MP3 here"
           kind="audio"
           accept="audio/mpeg,.mp3"
           @uploaded="setAudio"
@@ -111,7 +97,7 @@
       </div>
 
       <!-- STEP 2: TRIM -->
-      <div v-if="hiresFiles.length && dvrFile" class="panel">
+      <div v-if="bothVideosReady" class="panel">
         <h2 style="display:flex;align-items:center;gap:.5rem;margin-bottom:.85rem">
           <span style="font-size:1.35rem;line-height:1" aria-hidden="true">⇄</span>
           <span>Sync</span>
@@ -196,7 +182,7 @@
       </div>
 
       <!-- STEP 3: PIP + RENDER SETTINGS -->
-      <div v-if="hiresFiles.length && dvrFile" class="panel">
+      <div v-if="bothVideosReady" class="panel">
         <h2 style="display:flex;align-items:center;gap:.5rem">
           <span style="font-size:1.25rem;line-height:1" aria-hidden="true">▣</span>
           <span>Layout</span>
@@ -204,9 +190,9 @@
 
         <div class="row" style="margin-bottom: 1rem">
           <div class="col" style="max-width:200px">
-            <label>Resolution preset</label>
+            <label>Output size</label>
             <select v-model="resolutionPreset" @change="applyPreset">
-              <option value="auto">Auto (match drone source)</option>
+              <option value="auto">Same as drone</option>
               <option value="2160p">3840×2160 (4K)</option>
               <option value="1440p">2560×1440 (1440p)</option>
               <option value="1080p">1920×1080 (1080p)</option>
@@ -222,11 +208,11 @@
             <label>Height</label>
             <input type="number" v-model.number="outputHeight" min="2" step="2" />
           </div>
-          <div class="col" style="max-width:160px">
-            <label>Codec</label>
-            <select v-model="codec" title="Encoder shown in Render badge above (GPU/CPU)">
-              <option value="h264">H.264 · AVC</option>
-              <option value="h265">H.265 · HEVC</option>
+          <div class="col" style="max-width:200px">
+            <label>File format</label>
+            <select v-model="codec">
+              <option value="h264">Standard (recommended)</option>
+              <option value="h265">Smaller file</option>
             </select>
           </div>
         </div>
@@ -240,16 +226,52 @@
           :dvr-trim="dvrTrim"
           :hires-duration="hiresDuration"
           :dvr-duration="dvrDuration"
+          :privacy-masks="dvrPrivacyMasks"
           v-model="pip"
         />
+
+        <div class="panel" style="margin-top:1rem;background:var(--panel-2);border:1px solid var(--border)">
+          <h3 style="margin-top:0;font-size:1rem">Hide parts of goggles image (optional)</h3>
+          <button type="button" class="ghost" :disabled="dvrPrivacyMasks.length >= 16" @click="addPrivacyMask">
+            Add cover box
+          </button>
+          <div
+            v-for="(pm, pidx) in dvrPrivacyMasks"
+            :key="'priv-' + pidx"
+            style="margin-top:.75rem;padding:.65rem .85rem;border:1px solid var(--border);border-radius:8px;background:var(--panel)"
+          >
+            <div style="display:flex;flex-wrap:wrap;gap:.85rem;align-items:flex-end;margin-bottom:.5rem">
+              <div>
+                <label style="font-size:.78rem">Fill</label><br>
+                <input v-model="pm.color" type="color" style="height:2rem;width:3rem;padding:0;border:none;background:transparent;cursor:pointer">
+              </div>
+              <button type="button" class="ghost danger" style="margin-left:auto;font-size:.82rem" @click="removePrivacyMask(pidx)">Remove</button>
+            </div>
+            <div class="row" style="gap:.5rem">
+              <div class="col" style="min-width:140px">
+                <label class="muted" style="font-size:.72rem">Left {{ (pm.x * 100).toFixed(0) }}%</label>
+                <input type="range" min="0" max="100" step="0.5" :value="pm.x * 100" @input="onMaskX(pidx, +$event.target.value / 100)">
+              </div>
+              <div class="col" style="min-width:140px">
+                <label class="muted" style="font-size:.72rem">Top {{ (pm.y * 100).toFixed(0) }}%</label>
+                <input type="range" min="0" max="100" step="0.5" :value="pm.y * 100" @input="onMaskY(pidx, +$event.target.value / 100)">
+              </div>
+              <div class="col" style="min-width:140px">
+                <label class="muted" style="font-size:.72rem">Width {{ (pm.width * 100).toFixed(0) }}%</label>
+                <input type="range" min="1" max="100" step="0.5" :value="pm.width * 100" @input="onMaskWidth(pidx, +$event.target.value / 100)">
+              </div>
+              <div class="col" style="min-width:140px">
+                <label class="muted" style="font-size:.72rem">Height {{ (pm.height * 100).toFixed(0) }}%</label>
+                <input type="range" min="1" max="100" step="0.5" :value="pm.height * 100" @input="onMaskHeight(pidx, +$event.target.value / 100)">
+              </div>
+            </div>
+          </div>
+        </div>
 
         <div style="margin-top:1.25rem;display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
           <button class="primary" :disabled="!canRender" @click="startRender">
             Start export
           </button>
-          <span v-if="!canRender" class="muted">
-            Add at least one drone clip and the goggles video.
-          </span>
           <span v-if="renderError" class="error">{{ renderError }}</span>
         </div>
       </div>
@@ -258,14 +280,11 @@
     <!-- STEP 4: PROGRESS -->
     <section v-else>
       <div class="panel">
-        <h2>Rendering</h2>
+        <h2>Creating your video</h2>
         <JobProgress :job-id="jobId" @reset="resetJob" />
       </div>
     </section>
 
-    <footer class="muted" style="margin-top:2rem;text-align:center">
-      Backend: FastAPI + Celery + FFmpeg · Frontend: Vue 3 · Container: Docker Compose
-    </footer>
   </div>
 </template>
 
@@ -294,6 +313,9 @@ const audioDuration = ref(0)
 
 const pip = ref({ x: 0.02, y: 0.02, width: 0.30 })
 
+/** { x, y, width, height } as 0..1 fractions of goggles frame; color #RRGGBB */
+const dvrPrivacyMasks = ref([])
+
 const resolutionPreset = ref('auto')
 const outputWidth = ref(1920)
 const outputHeight = ref(1080)
@@ -302,26 +324,13 @@ const codec = ref('h264')
 const jobId = ref('')
 const renderError = ref('')
 
-/** GET /api/encoding — which FFmpeg encoders the backend uses (GPU vs CPU). */
-const encodeInfo = ref(null)
-
-const encodeTooltip = computed(() => {
-  const e = encodeInfo.value
-  if (!e) return ''
-  const forced = e.force_cpu_env ? 'FORCE_FFMPEG_CPU forces software encoding. ' : ''
-  return `${forced}Backend FFmpeg: H.264=${e.h264.encoder} (${e.h264.hardware ? 'hardware' : 'CPU'}), HEVC=${e.h265.encoder} (${e.h265.hardware ? 'hardware' : 'CPU'}). The worker uses the same logic.`
-})
-
-async function loadEncodingInfo() {
-  try {
-    encodeInfo.value = await api.encodingInfo()
-  } catch {
-    encodeInfo.value = null
-  }
-}
-
 const hasAnyState = computed(() =>
   hiresFiles.value.length > 0 || !!dvrFile.value || !!audioFile.value || !!jobId.value
+)
+
+/** Drone + goggles present — unlocks sync, layout preview, and optional music. */
+const bothVideosReady = computed(
+  () => hiresFiles.value.length > 0 && !!dvrFile.value,
 )
 
 /** First Hi-Res chunk (list order) for instant Trim-preview; export still uses all chunks. */
@@ -489,6 +498,13 @@ async function startRender() {
       output_width: outputWidth.value,
       output_height: outputHeight.value,
       codec: codec.value,
+      dvr_privacy_masks: dvrPrivacyMasks.value.map((m) => ({
+        x: m.x,
+        y: m.y,
+        width: m.width,
+        height: m.height,
+        color: m.color,
+      })),
     })
     jobId.value = res.job_id
   } catch (e) {
@@ -501,13 +517,24 @@ function resetJob() {
 }
 
 function stepClass(n) {
-  let active = 1
-  if (jobId.value) active = 4
-  else if (hiresFiles.value.length && dvrFile.value) active = 3
-  else if (hiresFiles.value.length || dvrFile.value) active = 2
+  if (jobId.value) {
+    return {
+      active: n === 4,
+      done: n < 4,
+      pending: false,
+    }
+  }
+  if (!bothVideosReady.value) {
+    return {
+      active: n === 1,
+      done: false,
+      pending: n > 1,
+    }
+  }
   return {
-    active: n === active,
-    done: n < active,
+    active: n === 2,
+    done: n === 1,
+    pending: n > 2,
   }
 }
 
@@ -520,6 +547,53 @@ function formatDuration(s) {
   const m = Math.floor(s / 60)
   const sec = Math.floor(s % 60)
   return `${m}:${sec.toString().padStart(2, '0')}`
+}
+
+function clamp01(v) {
+  return Math.max(0, Math.min(1, v))
+}
+
+function addPrivacyMask() {
+  if (dvrPrivacyMasks.value.length >= 16) return
+  dvrPrivacyMasks.value.push({
+    x: 0.05,
+    y: 0.72,
+    width: 0.9,
+    height: 0.14,
+    color: '#000000',
+  })
+}
+
+function removePrivacyMask(i) {
+  dvrPrivacyMasks.value.splice(i, 1)
+}
+
+function onMaskX(i, x) {
+  const pm = dvrPrivacyMasks.value[i]
+  if (!pm) return
+  pm.x = clamp01(x)
+  if (pm.x + pm.width > 1) pm.width = Math.max(0.001, 1 - pm.x)
+}
+
+function onMaskY(i, y) {
+  const pm = dvrPrivacyMasks.value[i]
+  if (!pm) return
+  pm.y = clamp01(y)
+  if (pm.y + pm.height > 1) pm.height = Math.max(0.001, 1 - pm.y)
+}
+
+function onMaskWidth(i, w) {
+  const pm = dvrPrivacyMasks.value[i]
+  if (!pm) return
+  const nw = clamp01(w)
+  pm.width = Math.max(0.001, Math.min(nw, 1 - pm.x))
+}
+
+function onMaskHeight(i, h) {
+  const pm = dvrPrivacyMasks.value[i]
+  if (!pm) return
+  const nh = clamp01(h)
+  pm.height = Math.max(0.001, Math.min(nh, 1 - pm.y))
 }
 
 watch(hiresFiles, () => {
@@ -545,6 +619,7 @@ function snapshot() {
     outputHeight: outputHeight.value,
     codec: codec.value,
     jobId: jobId.value || null,
+    dvrPrivacyMasks: dvrPrivacyMasks.value,
   }
 }
 
@@ -561,6 +636,7 @@ watch(
     hiresFiles, dvrFile, audioFile,
     hiresTrim, dvrTrim, audioTrim,
     pip,
+    dvrPrivacyMasks,
     resolutionPreset, outputWidth, outputHeight, codec,
     jobId,
   ],
@@ -597,6 +673,7 @@ async function restoreSession() {
   if (saved.outputWidth) outputWidth.value = saved.outputWidth
   if (saved.outputHeight) outputHeight.value = saved.outputHeight
   if (saved.codec) codec.value = saved.codec
+  if (Array.isArray(saved.dvrPrivacyMasks)) dvrPrivacyMasks.value = saved.dvrPrivacyMasks
 
   // Re-attach to an in-flight render job if it's still around.
   if (saved.jobId) {
@@ -645,6 +722,7 @@ async function resetAll() {
   outputWidth.value = 1920
   outputHeight.value = 1080
   codec.value = 'h264'
+  dvrPrivacyMasks.value = []
   jobId.value = ''
   renderError.value = ''
 
@@ -653,6 +731,5 @@ async function resetAll() {
 
 onMounted(() => {
   restoreSession()
-  loadEncodingInfo()
 })
 </script>

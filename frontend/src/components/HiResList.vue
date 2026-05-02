@@ -7,9 +7,8 @@
           {{ formatBytes(f.size) }}
           <span v-if="f.width">· {{ f.width }}×{{ f.height }}</span>
           <span v-if="f.duration">· {{ formatDuration(f.duration) }}</span>
-          <span v-if="f.video_codec">· {{ f.video_codec }}</span>
           <span v-if="!f.browser_playable && !f.preview_ready" style="color:var(--accent-2)">
-            · Building preview
+            · Loading preview…
           </span>
         </div>
       </div>
@@ -20,10 +19,10 @@
       </div>
     </div>
     <div v-if="!files.length" class="muted" style="margin-top:.5rem">
-      No hi-res files yet.
+      No drone videos yet.
     </div>
     <div v-if="files.length > 1" class="muted" style="margin-top:.5rem">
-      Order is the playback order when clips are stitched.
+      ↑↓ changes playback order.
     </div>
   </div>
 </template>

@@ -19,7 +19,7 @@
         @click="togglePlay"
       />
       <div v-else class="base" style="display:flex;align-items:center;justify-content:center;color:#888;height:100%;">
-        Building hi-res preview…
+        Loading preview…
       </div>
 
       <div
@@ -48,8 +48,20 @@
           v-else
           style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:#aaa;font-size:.8rem;text-align:center;padding:.25rem;line-height:1.2"
         >
-          DVR preview<br/>transcoding…
+          Loading<br/>small window…
         </div>
+        <div
+          v-for="(pm, pmIdx) in privacyMasks"
+          :key="'pm-' + pmIdx"
+          class="privacy-mask-layer"
+          :style="{
+            left: (pm.x * 100) + '%',
+            top: (pm.y * 100) + '%',
+            width: (pm.width * 100) + '%',
+            height: (pm.height * 100) + '%',
+            backgroundColor: pm.color,
+          }"
+        />
         <div
           class="resize-handle"
           @mousedown.stop="startResize"
@@ -85,28 +97,27 @@
         </span>
       </div>
       <div class="muted" style="font-size:.8rem">
-        Both clips follow one timeline (hi-res from {{ formatTime(hiresTrim.start || 0) }}, DVR from {{ formatTime(dvrTrim.start || 0) }}).
-        Trim changes above update this preview immediately.
+        Preview matches your trim settings above.
       </div>
     </div>
 
     <!-- PIP layout sliders -->
     <div class="row" style="margin-top: .75rem">
       <div class="col">
-        <label>X (fraction): {{ (modelValue.x * 100).toFixed(1) }} %</label>
+        <label>Horizontal position: {{ (modelValue.x * 100).toFixed(1) }} %</label>
         <input type="range" min="0" max="1" step="0.001" :value="modelValue.x" @input="set('x', $event)" />
       </div>
       <div class="col">
-        <label>Y (fraction): {{ (modelValue.y * 100).toFixed(1) }} %</label>
+        <label>Vertical position: {{ (modelValue.y * 100).toFixed(1) }} %</label>
         <input type="range" min="0" max="1" step="0.001" :value="modelValue.y" @input="set('y', $event)" />
       </div>
       <div class="col">
-        <label>Width (fraction): {{ (modelValue.width * 100).toFixed(1) }} %</label>
+        <label>Small window width: {{ (modelValue.width * 100).toFixed(1) }} %</label>
         <input type="range" min="0.05" max="1" step="0.001" :value="modelValue.width" @input="set('width', $event)" />
       </div>
     </div>
     <div class="muted" style="margin-top:.5rem">
-      Drag the overlay on the preview or use the orange corner to resize. Height follows the DVR aspect ratio.
+      Drag the small window or pull the corner to resize.
     </div>
   </div>
 </template>
@@ -117,6 +128,8 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 const props = defineProps({
   hiresSrc: { type: String, default: '' },
   dvrSrc: { type: String, default: '' },
+  /** Fractions of goggles frame (0–1); preview matches export when PiP uses full frame. */
+  privacyMasks: { type: Array, default: () => [] },
   outputWidth: { type: Number, required: true },
   outputHeight: { type: Number, required: true },
   modelValue: { type: Object, required: true }, // {x,y,width} as fractions of OUTPUT
@@ -381,3 +394,14 @@ onBeforeUnmount(() => {
 })
 watch(() => [props.outputWidth, props.outputHeight], measure)
 </script>
+
+<style scoped>
+.privacy-mask-layer {
+  position: absolute;
+  pointer-events: none;
+  z-index: 3;
+  opacity: 0.88;
+  box-sizing: border-box;
+  border: 1px dashed rgba(255, 255, 255, 0.35);
+}
+</style>

@@ -1,16 +1,14 @@
 <template>
   <div>
     <div v-if="!status">
-      <div class="muted">Starting job…</div>
+      <div class="muted">Starting…</div>
     </div>
     <div v-else>
       <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.25rem">
         <strong>{{ stateLabel }}</strong>
-        <span class="muted">{{ status.stage || '' }}</span>
         <span style="margin-left:auto;font-variant-numeric: tabular-nums">{{ Math.round((status.progress || 0) * 100) }} %</span>
       </div>
       <div class="progress"><div class="bar" :style="{ width: ((status.progress || 0) * 100) + '%' }" /></div>
-      <div v-if="status.message" class="muted" style="margin-top:.25rem">{{ status.message }}</div>
       <div v-if="status.error" class="error">Error: {{ status.error }}</div>
 
       <div v-if="status.state === 'SUCCESS' && status.output_filename" style="margin-top:1rem">
@@ -100,10 +98,9 @@
         <div
           style="margin-top:1rem;padding:.75rem 1rem;background:var(--panel-2);border-radius:8px;border:1px solid rgba(255,255,255,.06);font-size:.88rem;line-height:1.5"
         >
-          <strong style="color:var(--text)">Quick access (same machine)</strong>
+          <strong style="color:var(--text)">Save location</strong>
           <p class="muted" style="margin:.35rem 0 .5rem">
-            The browser may stream the file again over HTTP — large MP4s can take a while.
-            The same file is usually already on disk in your project folder:
+            Your finished video is also saved here (useful if download is slow):
           </p>
           <code style="display:block;padding:.4rem .55rem;background:rgba(0,0,0,.25);border-radius:4px;word-break:break-all;font-size:.82rem">
             {{ hostRelativeOutputPath }}
@@ -139,15 +136,15 @@ const stateLabel = computed(() => {
   const s = status.value?.state
   const stage = status.value?.stage
   switch (s) {
-    case 'PENDING': return 'Queued (worker busy)…'
+    case 'PENDING': return 'Waiting…'
     case 'STARTED': return 'Starting…'
     case 'PROGRESS':
-      if (stage === 'preparing') return 'Preparing hi-res…'
-      if (stage === 'rendering') return 'Rendering PiP…'
-      return `Working… (${stage || ''})`
+      if (stage === 'preparing') return 'Getting files ready…'
+      if (stage === 'rendering') return 'Creating your video…'
+      return 'Working…'
     case 'SUCCESS': return 'Done!'
-    case 'FAILURE': return 'Failed'
-    default: return s || ''
+    case 'FAILURE': return 'Something went wrong'
+    default: return 'Working…'
   }
 })
 

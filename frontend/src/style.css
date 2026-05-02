@@ -107,6 +107,26 @@ label { font-size: .85rem; color: var(--muted); display: block; margin-bottom: .
 }
 .step.active { background: var(--accent); color: #1a1208; border-color: var(--accent); font-weight: 600; }
 .step.done { color: var(--good); border-color: #2c5036; }
+.step.pending { opacity: 0.42; }
+
+.upload-phase {
+  display: grid;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+@media (min-width: 720px) {
+  .upload-phase {
+    grid-template-columns: 1fr 1fr;
+    align-items: start;
+  }
+}
+.upload-phase__card.panel { margin-bottom: 0; }
+.upload-phase__hint {
+  margin: 0 0 1rem;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  max-width: 42rem;
+}
 
 .panel {
   background: var(--panel);
@@ -185,7 +205,7 @@ label { font-size: .85rem; color: var(--muted); display: block; margin-bottom: .
   box-shadow: 0 0 0 1px rgba(0,0,0,.5);
 }
 .pip-overlay.dragging { cursor: grabbing; }
-.pip-overlay video { width: 100%; height: 100%; display: block; object-fit: cover; }
+.pip-overlay video { width: 100%; height: 100%; display: block; object-fit: contain; background: #000; }
 .pip-overlay .resize-handle {
   position: absolute;
   right: -6px;
@@ -195,6 +215,7 @@ label { font-size: .85rem; color: var(--muted); display: block; margin-bottom: .
   background: var(--accent);
   border-radius: 3px;
   cursor: nwse-resize;
+  z-index: 6;
 }
 
 .range-row { display: flex; gap: .5rem; align-items: center; }
@@ -370,26 +391,3 @@ label { font-size: .85rem; color: var(--muted); display: block; margin-bottom: .
 .muted { color: var(--muted); font-size: .85rem; }
 .kbd { background: var(--panel-2); padding: .1rem .4rem; border-radius: 4px; border: 1px solid var(--border); font-family: ui-monospace, SFMono-Regular, monospace; font-size: .8rem; }
 
-.encode-pill {
-  font-size: .78rem;
-  font-weight: 600;
-  padding: .25rem .65rem;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  max-width: min(100%, 560px);
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.encode-pill--gpu {
-  background: rgba(63, 185, 80, 0.12);
-  border-color: #2ea043;
-  color: var(--good);
-}
-.encode-pill--cpu {
-  background: var(--panel-2);
-  color: var(--muted);
-}
-.encode-pill__detail {
-  font-weight: 400;
-  opacity: 0.88;
-}

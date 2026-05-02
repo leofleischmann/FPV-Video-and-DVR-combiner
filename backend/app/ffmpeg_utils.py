@@ -54,6 +54,23 @@ def _audio_only_input(path: Path, ss: float) -> List[str]:
     return _ss_args(ss) + ["-i", str(path)]
 
 
+def _dvr_privacy_drawfilters(
+    masks: List[Tuple[float, float, float, float, str]],
+) -> str:
+    """drawbox chain on scaled DVR (coordinates as fractions of iw/ih). hex color #RRGGBB."""
+    parts: List[str] = []
+    for x, y, w, h, hex_col in masks:
+        hc = hex_col.strip()
+        if len(hc) == 7 and hc.startswith("#"):
+            ffcol = f"0x{hc[1:]}FF"
+        else:
+            ffcol = "0x000000FF"
+        parts.append(
+            f"drawbox=x='iw*{x:.8f}':y='ih*{y:.8f}':w='iw*{w:.8f}':h='ih*{h:.8f}':color={ffcol}:t=fill"
+        )
+    return ",".join(parts)
+
+
 @dataclass
 class ProbeInfo:
     width: int
@@ -323,6 +340,7 @@ def render_pip(
     progress_cb: ProgressCb,
     stage_start: float = 0.0,
     stage_end: float = 1.0,
+    dvr_privacy_masks: Optional[List[Tuple[float, float, float, float, str]]] = None,
 ) -> None:
     """Run the main PiP composite render.
 
@@ -374,9 +392,10 @@ def render_pip(
         f"[0:v]{vf_pre}{_trim_v_from_zero(hires_end)},scale={output_width}:{output_height}:force_original_aspect_ratio=decrease,"
         f"pad={output_width}:{output_height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1[base]"
     )
-    filters.append(
-        f"[1:v]{vf_pre}{_trim_v_from_zero(dvr_end)},scale={pip_w}:-2,setsar=1[pip]"
-    )
+    dvr_v = f"{vf_pre}{_trim_v_from_zero(dvr_end)},scale={pip_w}:-2,setsar=1"
+    if dvr_privacy_masks:
+        dvr_v += "," + _dvr_privacy_drawfilters(dvr_privacy_masks)
+    filters.append(f"[1:v]{dvr_v}[pip]")
     filters.append(
         f"[base][pip]overlay=x={pip_x}:y={pip_y}:eof_action=pass:shortest=0[v]"
     )
@@ -408,7 +427,8 @@ def render_pip(
 
     print(
         f"[render_pip] encoder={enc_name} codec_choice={codec} cuda_decode={use_cuda_decode} "
-        f"seek_hi={hs:g} seek_dvr={ds:g} seek_au={as_ if audio else 0:g}",
+        f"seek_hi={hs:g} seek_dvr={ds:g} seek_au={as_ if audio else 0:g} "
+        f"dvr_privacy_masks={len(dvr_privacy_masks or [])}",
         flush=True,
     )
 

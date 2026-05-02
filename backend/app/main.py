@@ -419,6 +419,7 @@ async def create_job(req: RenderJobRequest) -> JobStatus:
             "dvr_trim": req.dvr_trim.model_dump(),
             "audio_trim": req.audio_trim.model_dump(),
             "pip": req.pip.model_dump(),
+            "dvr_privacy_masks": [m.model_dump() for m in req.dvr_privacy_masks],
             "output_width": ow,
             "output_height": oh,
             "codec": req.codec,

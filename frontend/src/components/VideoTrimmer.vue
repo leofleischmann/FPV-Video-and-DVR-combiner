@@ -26,7 +26,7 @@
       class="muted"
       style="background:#000;border-radius:8px;padding:2rem;text-align:center;border:1px dashed var(--border)"
     >
-      Building preview…
+      Loading preview…
     </div>
 
     <div v-if="src" class="trim-scrub">
@@ -45,7 +45,6 @@
         <button type="button" class="btn-nudge" @click="nudge(0.1)">+0.1</button>
         <button type="button" class="btn-nudge" @click="nudge(1)">+1</button>
       </div>
-      <span class="trim-scrub__fps muted" style="font-size:.72rem;margin-left:auto">{{ fps.toFixed(0) }} fps</span>
     </div>
 
     <div v-if="duration > 0" style="margin-top: .75rem">

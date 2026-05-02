@@ -1,5 +1,6 @@
 from typing import List, Optional, Literal
-from pydantic import BaseModel, Field
+import re
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class FileInfo(BaseModel):
@@ -45,6 +46,32 @@ class PipSpec(BaseModel):
     width: float = Field(0.30, gt=0, le=1)
 
 
+class DvrPrivacyMask(BaseModel):
+    """Solid rectangle on the scaled DVR frame, before PiP overlay. Coordinates are fractions of DVR width/height."""
+
+    x: float = Field(0.0, ge=0, le=1)
+    y: float = Field(0.0, ge=0, le=1)
+    width: float = Field(0.1, gt=0, le=1)
+    height: float = Field(0.1, gt=0, le=1)
+    color: str = Field("#000000", description="#RRGGBB opaque fill")
+
+    @field_validator("color")
+    @classmethod
+    def validate_hex(cls, v: str) -> str:
+        s = v.strip()
+        if not re.fullmatch(r"#[0-9A-Fa-f]{6}", s):
+            raise ValueError("color must be #RRGGBB")
+        return s
+
+    @model_validator(mode="after")
+    def clamp_box(self) -> "DvrPrivacyMask":
+        w = min(self.width, 1.0 - self.x)
+        h = min(self.height, 1.0 - self.y)
+        object.__setattr__(self, "width", max(0.001, w))
+        object.__setattr__(self, "height", max(0.001, h))
+        return self
+
+
 class RenderJobRequest(BaseModel):
     hires_file_ids: List[str] = Field(..., min_length=1)
     dvr_file_id: str
@@ -53,6 +80,7 @@ class RenderJobRequest(BaseModel):
     dvr_trim: TrimSpec = TrimSpec()
     audio_trim: TrimSpec = TrimSpec()
     pip: PipSpec = PipSpec()
+    dvr_privacy_masks: List[DvrPrivacyMask] = Field(default_factory=list, max_length=16)
     output_width: int = Field(..., gt=0)
     output_height: int = Field(..., gt=0)
     codec: Literal["h264", "h265"] = "h264"

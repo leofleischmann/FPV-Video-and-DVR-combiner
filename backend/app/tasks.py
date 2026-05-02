@@ -18,6 +18,7 @@ from app.celery_app import celery_app
 from app.config import FILES_DIR, OUTPUTS_DIR, PREVIEWS_DIR, WORK_DIR
 from app import ffmpeg_utils as ff
 from app.hw_encode import log_encoder_cache_status
+from app.models import DvrPrivacyMask
 
 
 @celery_app.task(bind=True, name="generate_preview")
@@ -158,6 +159,7 @@ def render_pip_job(  # noqa: PLR0913
     output_width: int,
     output_height: int,
     codec: str,
+    dvr_privacy_masks: Optional[List[dict]] = None,
 ) -> dict:
     job_id = self.request.id
     work = WORK_DIR / job_id
@@ -307,6 +309,11 @@ def render_pip_job(  # noqa: PLR0913
         def cb(p: float, stage: str) -> None:
             report(p, stage)
 
+        mask_tuples: List[Tuple[float, float, float, float, str]] = []
+        for raw in dvr_privacy_masks or []:
+            m = DvrPrivacyMask(**raw)
+            mask_tuples.append((m.x, m.y, m.width, m.height, m.color))
+
         ff.render_pip(
             hires=hires_master,
             dvr=dvr_path,
@@ -324,6 +331,7 @@ def render_pip_job(  # noqa: PLR0913
             progress_cb=cb,
             stage_start=0.05,
             stage_end=0.99,
+            dvr_privacy_masks=mask_tuples if mask_tuples else None,
         )
 
         report(1.0, "done", "Done")
