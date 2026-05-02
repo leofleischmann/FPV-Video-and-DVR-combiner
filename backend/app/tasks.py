@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from celery.utils.log import get_task_logger
 
@@ -209,25 +212,69 @@ def render_pip_job(  # noqa: PLR0913
                 # Normalisierung nutzt GPU-Encoder (NVENC/…), see re_encode_normalize.
                 msg = str(concat_err)[:200]
                 report(0.005, "preparing", f"Lossless concat fehlgeschlagen ({msg}), normalisiere Chunks…")
-                normalized: List[Path] = []
-                # [0.005..0.038] normalize, [0.038..0.048] second concat (Stream-Copy)
+                # [0.005..0.038] normalize (parallel), [0.038..0.048] second concat (Stream-Copy)
                 norm_lo, norm_hi = 0.005, 0.038
-                slice_size = (norm_hi - norm_lo) / max(1, len(hires_paths))
-                for i, p in enumerate(hires_paths):
-                    n = work / f"norm_{i:03d}.mp4"
-                    s0 = norm_lo + i * slice_size
-                    s1 = norm_lo + (i + 1) * slice_size
+                norm_span = norm_hi - norm_lo
+                n_chunks = len(hires_paths)
+                durations: List[float] = []
+                for p in hires_paths:
+                    try:
+                        durations.append(max(0.001, ff.ffprobe(p).duration or 0.0))
+                    except Exception:
+                        durations.append(60.0)
+                total_d = max(sum(durations), 0.001)
+                weights = [d / total_d for d in durations]
 
-                    def cb(p_, _stage, i_=i, n_=len(hires_paths)):
-                        report(p_, "preparing", f"Normalisiere Chunk {i_ + 1}/{n_} (GPU falls verfügbar)")
+                chunk_global_ranges: List[Tuple[float, float]] = []
+                acc = 0.0
+                for w in weights:
+                    g0 = norm_lo + norm_span * acc
+                    acc += w
+                    g1 = norm_lo + norm_span * acc
+                    chunk_global_ranges.append((g0, g1))
 
+                progress_lock = threading.Lock()
+                part_frac = [0.0] * n_chunks
+
+                def merged_progress_cb(chunk_i: int, g0: float, g1: float) -> ff.ProgressCb:
+                    def cb(p: float, _stage: str) -> None:
+                        with progress_lock:
+                            denom = (g1 - g0) if (g1 - g0) > 1e-9 else 1.0
+                            part_frac[chunk_i] = max(
+                                part_frac[chunk_i],
+                                min(1.0, (p - g0) / denom),
+                            )
+                            agg = sum(part_frac[j] * weights[j] for j in range(n_chunks))
+                            report(
+                                norm_lo + agg * norm_span,
+                                "preparing",
+                                "Normalisiere Chunks parallel (GPU falls verfügbar) …",
+                            )
+
+                    return cb
+
+                def norm_one(i: int, src: Path) -> Tuple[int, Path]:
+                    dst = work / f"norm_{i:03d}.mp4"
+                    g0, g1 = chunk_global_ranges[i]
                     ff.re_encode_normalize(
-                        p, n,
-                        progress_cb=cb,
+                        src,
+                        dst,
+                        progress_cb=merged_progress_cb(i, g0, g1),
                         stage_label="preparing",
-                        stage_start=s0, stage_end=s1,
+                        stage_start=g0,
+                        stage_end=g1,
                     )
-                    normalized.append(n)
+                    return i, dst
+
+                max_workers = min(n_chunks, max(1, (os.cpu_count() or 2)), 8)
+                normalized_by_idx: List[Optional[Path]] = [None] * n_chunks
+                with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                    futs = [pool.submit(norm_one, i, p) for i, p in enumerate(hires_paths)]
+                    for fut in as_completed(futs):
+                        i, out_p = fut.result()
+                        normalized_by_idx[i] = out_p
+                normalized = [normalized_by_idx[i] for i in range(n_chunks)]
+                assert all(x is not None for x in normalized)
                 report(norm_hi, "preparing", "Füge normalisierte Teile zusammen (Stream-Copy) …")
 
                 def cb_concat2(p: float, _stage: str) -> None:

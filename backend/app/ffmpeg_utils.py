@@ -14,9 +14,44 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple  # noqa: F401
 
+from app.hw_cuda import use_cuda_decode_for_pip
 from app.hw_encode import encoder_args_for_codec, get_h264_encoder
 
 ProgressCb = Callable[[float, str], None]
+
+# Input seek: skip decoding before trim start (large files). Trim filters then use t=0…relative.
+_SEEK_EPS = 1e-3
+
+
+def _ss_args(start: float) -> List[str]:
+    if start > _SEEK_EPS:
+        return ["-ss", f"{start:.6f}"]
+    return []
+
+
+def _trim_v_from_zero(end_rel: Optional[float]) -> str:
+    if end_rel is not None:
+        return f"trim=start=0:end={end_rel:.3f},setpts=PTS-STARTPTS"
+    return "trim=start=0,setpts=PTS-STARTPTS"
+
+
+def _trim_a_from_zero(end_rel: Optional[float]) -> str:
+    if end_rel is not None:
+        return f"atrim=start=0:end={end_rel:.3f},asetpts=PTS-STARTPTS"
+    return f"atrim=start=0,asetpts=PTS-STARTPTS"
+
+
+def _video_input(path: Path, ss: float, *, cuda: bool) -> List[str]:
+    out: List[str] = []
+    if cuda:
+        out += ["-hwaccel", "cuda", "-hwaccel_output_format", "cuda"]
+    out += _ss_args(ss)
+    out += ["-i", str(path)]
+    return out
+
+
+def _audio_only_input(path: Path, ss: float) -> List[str]:
+    return _ss_args(ss) + ["-i", str(path)]
 
 
 @dataclass
@@ -303,11 +338,17 @@ def render_pip(
 
     # Output duration determined by hi-res trim (DVR is overlaid only while
     # the hi-res plays; if the DVR is shorter the overlay just disappears).
+    hires_probe_for_audio: Optional[ProbeInfo] = None
     if he is not None:
         out_duration = max(0.001, he - hs)
     else:
-        info = ffprobe(hires)
-        out_duration = max(0.001, info.duration - hs)
+        hires_probe_for_audio = ffprobe(hires)
+        out_duration = max(0.001, hires_probe_for_audio.duration - hs)
+
+    # Relative trim lengths after optional -ss on each input (fast seek on large files).
+    hires_end = (he - hs) if he is not None else None
+    dvr_end = (de - ds) if de is not None else None
+    audio_end = (ae - as_) if audio is not None and ae is not None else None
 
     # Compute integer pixel offsets/sizes against the output canvas.
     pip_w = max(2, int(round(output_width * pip_w_frac)))
@@ -319,16 +360,9 @@ def render_pip(
         pip_x = max(0, output_width - pip_w)
     # height is preserved by aspect ratio in scale=-2
 
-    # Build trim expressions.
-    def trim_v(start: float, end: Optional[float]) -> str:
-        if end is not None:
-            return f"trim=start={start:.3f}:end={end:.3f},setpts=PTS-STARTPTS"
-        return f"trim=start={start:.3f},setpts=PTS-STARTPTS"
-
-    def trim_a(start: float, end: Optional[float]) -> str:
-        if end is not None:
-            return f"atrim=start={start:.3f}:end={end:.3f},asetpts=PTS-STARTPTS"
-        return f"atrim=start={start:.3f},asetpts=PTS-STARTPTS"
+    enc_name, vcodec = encoder_args_for_codec(codec if codec in ("h264", "h265") else "h264")
+    use_cuda_decode = use_cuda_decode_for_pip(enc_name)
+    vf_pre = "hwdownload,format=yuv420p," if use_cuda_decode else ""
 
     # Filter graph
     # [0:v]  hi-res  -> trim -> scale to output
@@ -337,40 +371,51 @@ def render_pip(
     # audio handled separately (see below)
     filters: List[str] = []
     filters.append(
-        f"[0:v]{trim_v(hs, he)},scale={output_width}:{output_height}:force_original_aspect_ratio=decrease,"
+        f"[0:v]{vf_pre}{_trim_v_from_zero(hires_end)},scale={output_width}:{output_height}:force_original_aspect_ratio=decrease,"
         f"pad={output_width}:{output_height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1[base]"
     )
     filters.append(
-        f"[1:v]{trim_v(ds, de)},scale={pip_w}:-2,setsar=1[pip]"
+        f"[1:v]{vf_pre}{_trim_v_from_zero(dvr_end)},scale={pip_w}:-2,setsar=1[pip]"
     )
     filters.append(
         f"[base][pip]overlay=x={pip_x}:y={pip_y}:eof_action=pass:shortest=0[v]"
     )
 
-    inputs: List[str] = ["-i", str(hires), "-i", str(dvr)]
+    inputs: List[str] = []
+    inputs += _video_input(hires, hs, cuda=use_cuda_decode)
+    inputs += _video_input(dvr, ds, cuda=use_cuda_decode)
+
     audio_label: Optional[str] = None
-    audio_input_index: Optional[int] = None
 
     if audio is not None:
-        inputs += ["-i", str(audio)]
-        audio_input_index = 2
-        filters.append(f"[2:a]{trim_a(as_, ae)}[a]")
+        inputs += _audio_only_input(audio, as_)
+        filters.append(f"[2:a]{_trim_a_from_zero(audio_end)}[a]")
         audio_label = "[a]"
     else:
-        info = ffprobe(hires)
+        info = hires_probe_for_audio or ffprobe(hires)
         if info.has_audio:
-            filters.append(f"[0:a]{trim_a(hs, he)}[a]")
+            hires_audio_end = (he - hs) if he is not None else None
+            filters.append(f"[0:a]{_trim_a_from_zero(hires_audio_end)}[a]")
             audio_label = "[a]"
         # else: silent output
 
     filter_complex = ";".join(filters)
 
-    enc_name, vcodec = encoder_args_for_codec(codec if codec in ("h264", "h265") else "h264")
-    print(f"[render_pip] encoder={enc_name} codec_choice={codec}", flush=True)
+    extra_head: List[str] = []
+    if use_cuda_decode:
+        # Fewer edge-case failures when feeding CUDA surfaces into hwdownload + filters.
+        extra_head = ["-extra_hw_frames", "64"]
+
+    print(
+        f"[render_pip] encoder={enc_name} codec_choice={codec} cuda_decode={use_cuda_decode} "
+        f"seek_hi={hs:g} seek_dvr={ds:g} seek_au={as_ if audio else 0:g}",
+        flush=True,
+    )
 
     cmd: List[str] = [
         "ffmpeg", "-y",
         "-progress", "pipe:1", "-nostats",
+        *extra_head,
         *inputs,
         "-filter_complex", filter_complex,
         "-map", "[v]",
