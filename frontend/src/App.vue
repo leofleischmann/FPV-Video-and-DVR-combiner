@@ -2,7 +2,17 @@
   <div class="app-shell">
     <header class="header">
       <div class="brand">FPV <span class="accent">PiP</span> Merger</div>
-      <div class="muted">Hi-Res + DVR &rarr; Picture-in-Picture &rarr; MP4</div>
+      <div style="display:flex;align-items:center;gap:1rem">
+        <div class="muted">Hi-Res + DVR &rarr; Picture-in-Picture &rarr; MP4</div>
+        <button
+          class="ghost danger"
+          :disabled="!hasAnyState"
+          @click="resetAll"
+          title="Alle hochgeladenen Dateien und Einstellungen löschen"
+        >
+          Reset
+        </button>
+      </div>
     </header>
 
     <div class="steps">
@@ -203,13 +213,15 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import FileUploader from './components/FileUploader.vue'
 import HiResList from './components/HiResList.vue'
 import VideoTrimmer from './components/VideoTrimmer.vue'
 import PipEditor from './components/PipEditor.vue'
 import JobProgress from './components/JobProgress.vue'
 import { api } from './api.js'
+
+const STORAGE_KEY = 'fpv-merger-session-v1'
 
 const hiresFiles = ref([])  // FileInfo[]
 const dvrFile = ref(null)
@@ -232,6 +244,10 @@ const codec = ref('h264')
 
 const jobId = ref('')
 const renderError = ref('')
+
+const hasAnyState = computed(() =>
+  hiresFiles.value.length > 0 || !!dvrFile.value || !!audioFile.value || !!jobId.value
+)
 
 function bestSrc(f) {
   if (!f) return ''
