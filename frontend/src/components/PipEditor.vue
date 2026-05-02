@@ -19,7 +19,7 @@
         @click="togglePlay"
       />
       <div v-else class="base" style="display:flex;align-items:center;justify-content:center;color:#888;height:100%;">
-        Hi-Res Vorschau wird gerade generiert …
+        Building hi-res preview…
       </div>
 
       <div
@@ -48,7 +48,7 @@
           v-else
           style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:#aaa;font-size:.8rem;text-align:center;padding:.25rem;line-height:1.2"
         >
-          DVR-Vorschau<br/>wird transcodiert …
+          DVR preview<br/>transcoding…
         </div>
         <div
           class="resize-handle"
@@ -67,7 +67,7 @@
         step="0.01"
         :value="playhead"
         @input="onSeek"
-        title="Output-Position"
+        title="Timeline position"
       />
       <div style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap">
         <button @click="togglePlay" :title="playing ? 'Pause' : 'Play'">
@@ -75,40 +75,38 @@
         </button>
         <button @click="skip(-1)" title="−1 s">−1 s</button>
         <button @click="skip(-0.1)" title="−100 ms">−0.1 s</button>
-        <button @click="nudgeFrame(-1)" title="ein Frame zurück">◀ frame</button>
-        <button @click="nudgeFrame(1)" title="ein Frame vor">frame ▶</button>
+        <button @click="nudgeFrame(-1)" title="One frame back">◀ frame</button>
+        <button @click="nudgeFrame(1)" title="One frame forward">frame ▶</button>
         <button @click="skip(0.1)" title="+100 ms">+0.1 s</button>
         <button @click="skip(1)" title="+1 s">+1 s</button>
-        <button @click="toggleFullscreen" title="Vollbild">⛶ Großbild</button>
+        <button @click="toggleFullscreen" title="Fullscreen">⛶ Fullscreen</button>
         <span class="time" style="margin-left:auto;font-variant-numeric: tabular-nums">
           {{ formatTime(playhead) }} / {{ formatTime(outputDuration) }}
         </span>
       </div>
       <div class="muted" style="font-size:.8rem">
-        Beide Videos sind über die Output-Timeline synchronisiert (Hi-Res ab
-        {{ formatTime(hiresTrim.start || 0) }}, DVR ab {{ formatTime(dvrTrim.start || 0) }}).
-        Änderungen oben im Trim-Bereich wirken sich sofort hier aus.
+        Both clips follow one timeline (hi-res from {{ formatTime(hiresTrim.start || 0) }}, DVR from {{ formatTime(dvrTrim.start || 0) }}).
+        Trim changes above update this preview immediately.
       </div>
     </div>
 
     <!-- PIP layout sliders -->
     <div class="row" style="margin-top: .75rem">
       <div class="col">
-        <label>X-Position (Anteil): {{ (modelValue.x * 100).toFixed(1) }} %</label>
+        <label>X (fraction): {{ (modelValue.x * 100).toFixed(1) }} %</label>
         <input type="range" min="0" max="1" step="0.001" :value="modelValue.x" @input="set('x', $event)" />
       </div>
       <div class="col">
-        <label>Y-Position (Anteil): {{ (modelValue.y * 100).toFixed(1) }} %</label>
+        <label>Y (fraction): {{ (modelValue.y * 100).toFixed(1) }} %</label>
         <input type="range" min="0" max="1" step="0.001" :value="modelValue.y" @input="set('y', $event)" />
       </div>
       <div class="col">
-        <label>Breite (Anteil): {{ (modelValue.width * 100).toFixed(1) }} %</label>
+        <label>Width (fraction): {{ (modelValue.width * 100).toFixed(1) }} %</label>
         <input type="range" min="0.05" max="1" step="0.001" :value="modelValue.width" @input="set('width', $event)" />
       </div>
     </div>
     <div class="muted" style="margin-top:.5rem">
-      Tipp: Overlay direkt im Vorschau-Bild ziehen oder an der orangen Ecke skalieren.
-      Höhe wird automatisch aus dem DVR-Seitenverhältnis berechnet.
+      Drag the overlay on the preview or use the orange corner to resize. Height follows the DVR aspect ratio.
     </div>
   </div>
 </template>

@@ -26,7 +26,7 @@
       class="muted"
       style="background:#000;border-radius:8px;padding:2rem;text-align:center;border:1px dashed var(--border)"
     >
-      …
+      Building preview…
     </div>
 
     <div v-if="src" class="trim-scrub">

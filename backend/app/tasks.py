@@ -175,7 +175,7 @@ def render_pip_job(  # noqa: PLR0913
 
     try:
         # 1. Concatenate hi-res chunks if needed (lossless when possible).
-        report(0.0, "preparing", "Vorbereiten der Hi-Res-Datei")
+        report(0.0, "preparing", "Preparing hi-res source…")
         hires_paths = [FILES_DIR / fid for fid in hires_file_ids]
         for p in hires_paths:
             if not p.exists():
@@ -189,12 +189,12 @@ def render_pip_job(  # noqa: PLR0913
                 report(
                     0.005,
                     "preparing",
-                    "Hi-Res: verlustfreier Concat (nur Stream-Copy; "
-                    "keine GPU — wird von Festplatten-I/O begrenzt)",
+                    "Hi-res: lossless concat (stream copy only; "
+                    "limited by disk I/O)",
                 )
 
                 def cb_concat(p: float, _stage: str) -> None:
-                    report(p, "preparing", "Hi-Res-Teile zusammenfügen (Fortschritt geschätzt) …")
+                    report(p, "preparing", "Joining hi-res parts (estimated progress)…")
 
                 ff.concat_lossless(
                     hires_paths,
@@ -205,13 +205,13 @@ def render_pip_job(  # noqa: PLR0913
                     stage_start=0.005,
                     stage_end=0.04,
                 )
-                report(0.04, "preparing", "Hi-Res Concat fertig")
+                report(0.04, "preparing", "Hi-res concat done")
             except Exception as concat_err:
                 # Fallback: re-encode each part to a uniform format, then concat.
                 # This is the slow path — give the user visible progress.
                 # Normalisierung nutzt GPU-Encoder (NVENC/…), see re_encode_normalize.
                 msg = str(concat_err)[:200]
-                report(0.005, "preparing", f"Lossless concat fehlgeschlagen ({msg}), normalisiere Chunks…")
+                report(0.005, "preparing", f"Lossless concat failed ({msg}), normalizing chunks…")
                 # [0.005..0.038] normalize (parallel), [0.038..0.048] second concat (Stream-Copy)
                 norm_lo, norm_hi = 0.005, 0.038
                 norm_span = norm_hi - norm_lo
@@ -248,7 +248,7 @@ def render_pip_job(  # noqa: PLR0913
                             report(
                                 norm_lo + agg * norm_span,
                                 "preparing",
-                                "Normalisiere Chunks parallel (GPU falls verfügbar) …",
+                                "Normalizing chunks in parallel (GPU if available)…",
                             )
 
                     return cb
@@ -275,10 +275,10 @@ def render_pip_job(  # noqa: PLR0913
                         normalized_by_idx[i] = out_p
                 normalized = [normalized_by_idx[i] for i in range(n_chunks)]
                 assert all(x is not None for x in normalized)
-                report(norm_hi, "preparing", "Füge normalisierte Teile zusammen (Stream-Copy) …")
+                report(norm_hi, "preparing", "Joining normalized parts (stream copy)…")
 
                 def cb_concat2(p: float, _stage: str) -> None:
-                    report(p, "preparing", "Concat normalisierter Chunks …")
+                    report(p, "preparing", "Concatenating normalized chunks…")
 
                 ff.concat_lossless(
                     normalized,
@@ -290,7 +290,7 @@ def render_pip_job(  # noqa: PLR0913
                     stage_end=0.048,
                 )
 
-        report(0.05, "preparing", f"Hi-Res bereit · {log_encoder_cache_status()}")
+        report(0.05, "preparing", f"Hi-res ready · {log_encoder_cache_status()}")
 
         dvr_path = FILES_DIR / dvr_file_id
         if not dvr_path.exists():
@@ -326,7 +326,7 @@ def render_pip_job(  # noqa: PLR0913
             stage_end=0.99,
         )
 
-        report(1.0, "done", "Fertig")
+        report(1.0, "done", "Done")
         return {
             "ok": True,
             "output_filename": out_path.name,

@@ -1,7 +1,7 @@
 <template>
   <div>
     <div v-if="!status">
-      <div class="muted">Job wird gestartet …</div>
+      <div class="muted">Starting job…</div>
     </div>
     <div v-else>
       <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.25rem">
@@ -11,10 +11,10 @@
       </div>
       <div class="progress"><div class="bar" :style="{ width: ((status.progress || 0) * 100) + '%' }" /></div>
       <div v-if="status.message" class="muted" style="margin-top:.25rem">{{ status.message }}</div>
-      <div v-if="status.error" class="error">Fehler: {{ status.error }}</div>
+      <div v-if="status.error" class="error">Error: {{ status.error }}</div>
 
       <div v-if="status.state === 'SUCCESS' && status.output_filename" style="margin-top:1rem">
-        <h3 style="margin-bottom:.5rem">Vorschau des fertigen Videos</h3>
+        <h3 style="margin-bottom:.5rem">Preview</h3>
 
         <div ref="playerWrap" style="position:relative;background:#000;border-radius:8px;overflow:hidden">
           <video
@@ -49,10 +49,10 @@
             <button @click="togglePlay" :title="resultPlaying ? 'Pause (Space)' : 'Play (Space)'">
               {{ resultPlaying ? '⏸' : '▶' }}
             </button>
-            <button @click="skip(-10)" title="−10 Sekunden">⏪ 10 s</button>
-            <button @click="skip(-1)" title="−1 Sekunde">−1 s</button>
-            <button @click="skip(1)" title="+1 Sekunde">+1 s</button>
-            <button @click="skip(10)" title="+10 Sekunden">10 s ⏩</button>
+            <button @click="skip(-10)" title="−10 seconds">⏪ 10 s</button>
+            <button @click="skip(-1)" title="−1 second">−1 s</button>
+            <button @click="skip(1)" title="+1 second">+1 s</button>
+            <button @click="skip(10)" title="+10 seconds">10 s ⏩</button>
 
             <span class="time" style="font-variant-numeric: tabular-nums;margin-left:.5rem">
               {{ formatTime(resultTime) }} / {{ formatTime(resultDuration) }}
@@ -71,7 +71,7 @@
             </span>
 
             <span style="display:flex;align-items:center;gap:.4rem">
-              <button @click="toggleMute" :title="muted ? 'Ton an' : 'Stumm'">
+              <button @click="toggleMute" :title="muted ? 'Unmute' : 'Mute'">
                 {{ muted || volume === 0 ? '🔇' : volume < 0.5 ? '🔉' : '🔊' }}
               </button>
               <input
@@ -82,11 +82,11 @@
                 :value="muted ? 0 : volume"
                 @input="onVolumeInput"
                 style="width:90px"
-                title="Lautstärke"
+                title="Volume"
               />
             </span>
 
-            <button @click="toggleFullscreen" title="Vollbild (f)">⛶ Großbild</button>
+            <button @click="toggleFullscreen" title="Fullscreen (f)">⛶ Fullscreen</button>
           </div>
         </div>
 
@@ -94,30 +94,30 @@
           <a :href="downloadUrl" :download="`fpv_pip_${jobId.slice(0,8)}.mp4`">
             <button class="primary">Download MP4</button>
           </a>
-          <button class="ghost" @click="$emit('reset')">Neuen Render starten</button>
+          <button class="ghost" @click="$emit('reset')">New export</button>
         </div>
 
         <div
           style="margin-top:1rem;padding:.75rem 1rem;background:var(--panel-2);border-radius:8px;border:1px solid rgba(255,255,255,.06);font-size:.88rem;line-height:1.5"
         >
-          <strong style="color:var(--text)">Schneller Zugriff (lokal / Docker)</strong>
+          <strong style="color:var(--text)">Quick access (same machine)</strong>
           <p class="muted" style="margin:.35rem 0 .5rem">
-            Der Browser lädt die Datei noch einmal über das Netzwerk — bei großen MP4 kann das dauern.
-            Auf dem Rechner liegt dieselbe Datei oft schon im Projektordner:
+            The browser may stream the file again over HTTP — large MP4s can take a while.
+            The same file is usually already on disk in your project folder:
           </p>
           <code style="display:block;padding:.4rem .55rem;background:rgba(0,0,0,.25);border-radius:4px;word-break:break-all;font-size:.82rem">
             {{ hostRelativeOutputPath }}
           </code>
           <div style="margin-top:.5rem;display:flex;gap:.4rem;flex-wrap:wrap;align-items:center">
             <button type="button" class="ghost" style="font-size:.85rem" @click="copyOutputPath">
-              Pfad in Zwischenablage
+              Copy path
             </button>
             <span v-if="copyFeedback" class="muted" style="font-size:.82rem">{{ copyFeedback }}</span>
           </div>
         </div>
       </div>
       <div v-else-if="status.state === 'FAILURE'" style="margin-top:.5rem">
-        <button class="ghost" @click="$emit('reset')">Zurück</button>
+        <button class="ghost" @click="$emit('reset')">Back</button>
       </div>
     </div>
   </div>
@@ -139,21 +139,21 @@ const stateLabel = computed(() => {
   const s = status.value?.state
   const stage = status.value?.stage
   switch (s) {
-    case 'PENDING': return 'In Warteschlange (Worker noch belegt) …'
-    case 'STARTED': return 'Job startet …'
+    case 'PENDING': return 'Queued (worker busy)…'
+    case 'STARTED': return 'Starting…'
     case 'PROGRESS':
-      if (stage === 'preparing') return 'Hi-Res wird vorbereitet (Concat) …'
-      if (stage === 'rendering') return 'Rendere PiP …'
-      return `Arbeite … (${stage || ''})`
-    case 'SUCCESS': return 'Fertig!'
-    case 'FAILURE': return 'Fehlgeschlagen'
+      if (stage === 'preparing') return 'Preparing hi-res…'
+      if (stage === 'rendering') return 'Rendering PiP…'
+      return `Working… (${stage || ''})`
+    case 'SUCCESS': return 'Done!'
+    case 'FAILURE': return 'Failed'
     default: return s || ''
   }
 })
 
 const downloadUrl = computed(() => api.downloadUrl(props.jobId))
 const previewUrl = computed(() => api.jobPreviewUrl(props.jobId))
-/** Relativ zum Projektroot — gleicher Bind-Mount wie im Docker-`data`-Volume. */
+/** Relative to project root (matches Docker `data` volume mount). */
 const hostRelativeOutputPath = computed(
   () => `data/outputs/${props.jobId}.mp4`,
 )
@@ -164,12 +164,12 @@ async function copyOutputPath() {
   copyFeedback.value = ''
   try {
     await navigator.clipboard.writeText(hostRelativeOutputPath.value)
-    copyFeedback.value = 'Kopiert.'
+    copyFeedback.value = 'Copied.'
     window.setTimeout(() => {
       copyFeedback.value = ''
     }, 2500)
   } catch {
-    copyFeedback.value = 'Kopieren nicht möglich (Browser).'
+    copyFeedback.value = 'Could not copy (browser).'
     window.setTimeout(() => {
       copyFeedback.value = ''
     }, 3500)

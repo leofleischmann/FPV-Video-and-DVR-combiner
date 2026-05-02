@@ -11,7 +11,7 @@
     >
       <div><strong>{{ label }}</strong></div>
       <div class="hint">{{ hint }}</div>
-      <div class="hint">Klicken oder Datei{{ multiple ? '(en)' : '' }} hierher ziehen</div>
+      <div class="hint">Click or drag {{ multiple ? 'files' : 'a file' }} here</div>
     </div>
     <input
       ref="inputEl"
@@ -29,7 +29,7 @@
           <div class="progress"><div class="bar" :style="{ width: (u.progress * 100) + '%' }" /></div>
         </div>
         <div class="actions">
-          <button class="ghost danger" @click="cancel(u)">Abbrechen</button>
+          <button class="ghost danger" @click="cancel(u)">Cancel</button>
         </div>
       </div>
     </div>
@@ -44,7 +44,7 @@ import { uploadFile } from '../api.js'
 const props = defineProps({
   label: { type: String, required: true },
   hint: { type: String, default: '' },
-  kind: { type: String, required: true }, // 'hires' | 'dvr' | 'audio'
+  kind: { type: String, required: true },
   accept: { type: String, default: '' },
   multiple: { type: Boolean, default: false },
 })
@@ -90,11 +90,9 @@ async function handleFile(file) {
     emit('uploaded', fileInfo)
   } catch (e) {
     if (e.message !== 'aborted') {
-      error.value = `Upload-Fehler bei ${file.name}: ${e.message}`
+      error.value = `Upload failed for ${file.name}: ${e.message}`
     }
   } finally {
-    // NB: Vue 3 wraps pushed objects in a reactive Proxy on access, so
-    // `x !== entry` is always true. Compare by the stable key instead.
     active.value = active.value.filter(x => x.key !== entry.key)
   }
 }

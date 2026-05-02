@@ -28,8 +28,8 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/0
       DATA_DIR: /data
-      # Optional: FORCE_FFMPEG_CPU=1  — immer CPU-Encoding (Debug / ohne GPU-Treiber)
-      # GPU (NVENC): siehe docker-compose.gpu.yml
+      # Optional: FORCE_FFMPEG_CPU=1 — force CPU encoding (debug / no GPU driver)
+      # GPU (NVENC): see docker-compose.gpu.yml
     volumes:
       - ./data:/data
     depends_on:

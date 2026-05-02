@@ -9,7 +9,7 @@
           <span v-if="f.duration">· {{ formatDuration(f.duration) }}</span>
           <span v-if="f.video_codec">· {{ f.video_codec }}</span>
           <span v-if="!f.browser_playable && !f.preview_ready" style="color:var(--accent-2)">
-            · Vorschau wird generiert
+            · Building preview
           </span>
         </div>
       </div>
@@ -20,10 +20,10 @@
       </div>
     </div>
     <div v-if="!files.length" class="muted" style="margin-top:.5rem">
-      Noch keine Hi-Res-Chunks hochgeladen.
+      No hi-res files yet.
     </div>
     <div v-if="files.length > 1" class="muted" style="margin-top:.5rem">
-      Reihenfolge bestimmt die Concat-Reihenfolge im Backend.
+      Order is the playback order when clips are stitched.
     </div>
   </div>
 </template>

@@ -19,7 +19,7 @@
           class="ghost danger"
           :disabled="!hasAnyState"
           @click="resetAll"
-          title="Alle hochgeladenen Dateien und Einstellungen löschen"
+          title="Remove all uploads and settings"
         >
           Reset
         </button>
@@ -27,7 +27,7 @@
     </header>
 
     <div class="steps">
-      <div class="step" :class="stepClass(1)">1 · Dateien</div>
+      <div class="step" :class="stepClass(1)">1 · Files</div>
       <div class="step" :class="stepClass(2)">2 · Sync</div>
       <div class="step" :class="stepClass(3)">3 · Layout</div>
       <div class="step" :class="stepClass(4)">4 · Export</div>
@@ -36,14 +36,13 @@
     <!-- STEP 1: UPLOAD -->
     <section v-if="!jobId">
       <div class="panel">
-        <h2>1 · Hi-Res Drohnen-Aufnahme (.mp4)</h2>
+        <h2>1 · Drone footage (.mp4)</h2>
         <p class="muted">
-          Mehrere Chunks (max. 4 GB pro Datei) sind erlaubt — sie werden serverseitig
-          per FFmpeg Concat Demuxer (verlustfrei wenn möglich) zusammengefügt.
+          Multiple parts allowed (max ~4 GB each). They are stitched on the server when possible without re-encoding.
         </p>
         <FileUploader
-          label="Hi-Res MP4 hier ablegen"
-          hint="Mehrere Dateien für gesplittete Aufnahmen"
+          label="Drop hi-res MP4 here"
+          hint="Multiple files for split recordings"
           kind="hires"
           accept="video/mp4"
           :multiple="true"
@@ -57,10 +56,10 @@
       </div>
 
       <div class="panel">
-        <h2>2 · DVR / Brillen-Aufnahme (.mov)</h2>
+        <h2>2 · Goggles / DVR (.mov)</h2>
         <FileUploader
           v-if="!dvrFile"
-          label="DVR MOV hier ablegen"
+          label="Drop goggles DVR (.mov) here"
           kind="dvr"
           accept="video/quicktime,.mov,video/*"
           @uploaded="setDvr"
@@ -74,7 +73,7 @@
               <span v-if="dvrFile.duration">· {{ formatDuration(dvrFile.duration) }}</span>
               <span v-if="dvrFile.video_codec">· {{ dvrFile.video_codec }}</span>
               <span v-if="!dvrFile.browser_playable && !dvrFile.preview_ready" style="color:var(--accent-2)">
-                · Vorschau wird generiert
+                · Building preview
               </span>
             </div>
           </div>
@@ -87,12 +86,12 @@
       <div class="panel">
         <h2>3 · Audio (optional, .mp3)</h2>
         <p class="muted">
-          Wird eine MP3 hochgeladen, werden beide Original-Tonspuren der Videos verworfen
-          und ausschließlich die geschnittene MP3 gemuxt. Ohne MP3 bleibt der Hi-Res-Ton erhalten.
+          With an MP3, both original audio tracks are dropped and only your trimmed MP3 is used.
+          Without MP3, the drone clip keeps its audio.
         </p>
         <FileUploader
           v-if="!audioFile"
-          label="MP3 hier ablegen (optional)"
+          label="Drop MP3 here (optional)"
           kind="audio"
           accept="audio/mpeg,.mp3"
           @uploaded="setAudio"
@@ -122,7 +121,7 @@
           <div class="col trim-col trim-col--drone">
             <div class="trim-col__head">
               <span class="trim-col__stripe trim-col__stripe--drone" aria-hidden="true" />
-              <h3 style="margin:0;text-transform:none;letter-spacing:0;font-size:1rem;color:var(--text)">Drohne</h3>
+              <h3 style="margin:0;text-transform:none;letter-spacing:0;font-size:1rem;color:var(--text)">Drone</h3>
               <span v-if="hiresFiles.length > 1" class="trim-col__badge">{{ hiresFiles.length }}</span>
             </div>
             <VideoTrimmer
@@ -137,7 +136,7 @@
           <div class="col trim-col trim-col--goggles">
             <div class="trim-col__head">
               <span class="trim-col__stripe trim-col__stripe--goggles" aria-hidden="true" />
-              <h3 style="margin:0;text-transform:none;letter-spacing:0;font-size:1rem;color:var(--text)">Brille</h3>
+              <h3 style="margin:0;text-transform:none;letter-spacing:0;font-size:1rem;color:var(--text)">Goggles</h3>
             </div>
             <VideoTrimmer
               :src="dvrPreviewSrc"
@@ -205,9 +204,9 @@
 
         <div class="row" style="margin-bottom: 1rem">
           <div class="col" style="max-width:200px">
-            <label>Auflösung Preset</label>
+            <label>Resolution preset</label>
             <select v-model="resolutionPreset" @change="applyPreset">
-              <option value="auto">Auto (Hi-Res Original)</option>
+              <option value="auto">Auto (match drone source)</option>
               <option value="2160p">3840×2160 (4K)</option>
               <option value="1440p">2560×1440 (1440p)</option>
               <option value="1080p">1920×1080 (1080p)</option>
@@ -216,16 +215,16 @@
             </select>
           </div>
           <div class="col" style="max-width:140px">
-            <label>Breite</label>
+            <label>Width</label>
             <input type="number" v-model.number="outputWidth" min="2" step="2" />
           </div>
           <div class="col" style="max-width:140px">
-            <label>Höhe</label>
+            <label>Height</label>
             <input type="number" v-model.number="outputHeight" min="2" step="2" />
           </div>
           <div class="col" style="max-width:160px">
             <label>Codec</label>
-            <select v-model="codec" title="Encoder siehe Badge „Render“ oben (GPU/CPU)">
+            <select v-model="codec" title="Encoder shown in Render badge above (GPU/CPU)">
               <option value="h264">H.264 · AVC</option>
               <option value="h265">H.265 · HEVC</option>
             </select>
@@ -246,10 +245,10 @@
 
         <div style="margin-top:1.25rem;display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
           <button class="primary" :disabled="!canRender" @click="startRender">
-            Rendern starten
+            Start export
           </button>
           <span v-if="!canRender" class="muted">
-            Mindestens ein Hi-Res-Chunk und das DVR-Video sind nötig.
+            Add at least one drone clip and the goggles video.
           </span>
           <span v-if="renderError" class="error">{{ renderError }}</span>
         </div>
@@ -303,14 +302,14 @@ const codec = ref('h264')
 const jobId = ref('')
 const renderError = ref('')
 
-/** GET /api/encoding — welche FFmpeg-Encoder der Container nutzt (GPU vs CPU). */
+/** GET /api/encoding — which FFmpeg encoders the backend uses (GPU vs CPU). */
 const encodeInfo = ref(null)
 
 const encodeTooltip = computed(() => {
   const e = encodeInfo.value
   if (!e) return ''
-  const forced = e.force_cpu_env ? 'FORCE_FFMPEG_CPU erzwingt Software-Encoding. ' : ''
-  return `${forced}FFmpeg im Backend: H.264=${e.h264.encoder} (${e.h264.hardware ? 'Hardware' : 'CPU'}), HEVC=${e.h265.encoder} (${e.h265.hardware ? 'Hardware' : 'CPU'}). Der Celery-Worker verwendet dieselbe Logik.`
+  const forced = e.force_cpu_env ? 'FORCE_FFMPEG_CPU forces software encoding. ' : ''
+  return `${forced}Backend FFmpeg: H.264=${e.h264.encoder} (${e.h264.hardware ? 'hardware' : 'CPU'}), HEVC=${e.h265.encoder} (${e.h265.hardware ? 'hardware' : 'CPU'}). The worker uses the same logic.`
 })
 
 async function loadEncodingInfo() {
@@ -386,7 +385,7 @@ const audioRawSrc = computed(() => {
 
 const canRender = computed(() => hiresFiles.value.length > 0 && !!dvrFile.value)
 
-/** Kleinster Dateiname zuerst (localeCompare, numerische Teilstrings: part2 vor part10). */
+/** Sort by filename (numeric-aware: part2 before part10). */
 function sortHiresFilesByFilename(files) {
   return [...files].sort((a, b) =>
     (a.filename || '').localeCompare(b.filename || '', undefined, { numeric: true, sensitivity: 'base' }),
@@ -397,7 +396,7 @@ function addHires(f) {
   hiresFiles.value.push(f)
   hiresFiles.value = sortHiresFilesByFilename(hiresFiles.value)
   pollPreview(f)
-  // First chunk (nach Sortierung) setzt Auflösung bei nur einem Teil.
+  // First chunk after sort sets resolution when only one file.
   const first = hiresFiles.value[0]
   if (hiresFiles.value.length === 1 && first?.width && first?.height) {
     outputWidth.value = first.width
@@ -603,8 +602,7 @@ async function restoreSession() {
   if (saved.jobId) {
     try {
       const status = await api.getJob(saved.jobId)
-      // Only resume PENDING/STARTED/PROGRESS — anything terminal we discard
-      // so the user lands on the upload screen, not on stale "Fertig" UI.
+      // Only resume PENDING/STARTED/PROGRESS — terminal jobs drop back to upload.
       if (['PENDING', 'STARTED', 'PROGRESS'].includes(status.state)) {
         jobId.value = saved.jobId
       }
@@ -620,8 +618,8 @@ async function restoreSession() {
 
 async function resetAll() {
   if (!confirm(
-    'Komplett zurücksetzen: Auf dem Server werden Uploads, Dateien, Vorschauen, '
-    + 'Render-Ausgaben und temporäre Arbeitsordner gelöscht. Browser-Speicher ebenfalls. Fortfahren?',
+    'Reset everything? This deletes uploads, files, previews, rendered outputs, '
+    + 'and temp work on the server, and clears browser storage. Continue?',
   )) {
     return
   }
@@ -629,7 +627,7 @@ async function resetAll() {
     await api.resetWorkspace()
   } catch (e) {
     renderError.value = e.message || String(e)
-    alert(`Reset am Server fehlgeschlagen: ${renderError.value}`)
+    alert(`Server reset failed: ${renderError.value}`)
     return
   }
 
