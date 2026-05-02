@@ -367,10 +367,10 @@ const effectiveDvrEnd = computed(
   () => dvrTrim.value.end ?? dvrDuration.value ?? 0,
 )
 const syncOffset = computed(() => dvrTrim.value.start - hiresTrim.value.start)
+/** Matches export: length follows the drone (hi-res) trim — see render_pip in backend. */
 const outputDuration = computed(() => {
   const hi = effectiveHiresEnd.value - hiresTrim.value.start
-  const dv = effectiveDvrEnd.value - dvrTrim.value.start
-  return Math.max(0, Math.min(hi, dv))
+  return Math.max(0, hi)
 })
 
 function formatTimeFull(s) {
