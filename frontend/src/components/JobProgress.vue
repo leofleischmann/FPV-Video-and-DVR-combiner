@@ -13,11 +13,20 @@
       <div v-if="status.message" class="muted" style="margin-top:.25rem">{{ status.message }}</div>
       <div v-if="status.error" class="error">Fehler: {{ status.error }}</div>
 
-      <div v-if="status.state === 'SUCCESS' && status.output_filename" style="margin-top:.75rem;display:flex;gap:.5rem">
-        <a :href="downloadUrl" :download="`fpv_pip_${jobId.slice(0,8)}.mp4`">
-          <button class="primary">Download MP4</button>
-        </a>
-        <button class="ghost" @click="$emit('reset')">Neuen Render starten</button>
+      <div v-if="status.state === 'SUCCESS' && status.output_filename" style="margin-top:1rem">
+        <h3 style="margin-bottom:.5rem">Vorschau des fertigen Videos</h3>
+        <video
+          :src="previewUrl"
+          controls
+          preload="metadata"
+          style="width:100%;max-height:540px;background:#000;border-radius:8px"
+        />
+        <div style="margin-top:.75rem;display:flex;gap:.5rem;flex-wrap:wrap">
+          <a :href="downloadUrl" :download="`fpv_pip_${jobId.slice(0,8)}.mp4`">
+            <button class="primary">Download MP4</button>
+          </a>
+          <button class="ghost" @click="$emit('reset')">Neuen Render starten</button>
+        </div>
       </div>
       <div v-else-if="status.state === 'FAILURE'" style="margin-top:.5rem">
         <button class="ghost" @click="$emit('reset')">Zurück</button>
@@ -55,6 +64,7 @@ const stateLabel = computed(() => {
 })
 
 const downloadUrl = computed(() => api.downloadUrl(props.jobId))
+const previewUrl = computed(() => api.jobPreviewUrl(props.jobId))
 
 async function poll() {
   try {

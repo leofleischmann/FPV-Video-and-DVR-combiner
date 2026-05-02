@@ -93,7 +93,9 @@ async function handleFile(file) {
       error.value = `Upload-Fehler bei ${file.name}: ${e.message}`
     }
   } finally {
-    active.value = active.value.filter(x => x !== entry)
+    // NB: Vue 3 wraps pushed objects in a reactive Proxy on access, so
+    // `x !== entry` is always true. Compare by the stable key instead.
+    active.value = active.value.filter(x => x.key !== entry.key)
   }
 }
 

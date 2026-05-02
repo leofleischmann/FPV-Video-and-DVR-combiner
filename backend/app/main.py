@@ -373,6 +373,16 @@ async def get_job(job_id: str) -> JobStatus:
     )
 
 
+@app.get("/api/jobs/{job_id}/preview")
+async def preview_job(job_id: str, request: Request) -> Response:
+    """Inline-stream the rendered MP4 for in-browser <video> playback,
+    with HTTP Range support for seeking."""
+    out = OUTPUTS_DIR / f"{job_id}.mp4"
+    if not out.exists():
+        raise HTTPException(404, "output not ready")
+    return _range_response(out, request, "video/mp4")
+
+
 @app.get("/api/jobs/{job_id}/download")
 async def download_job(job_id: str):
     out = OUTPUTS_DIR / f"{job_id}.mp4"

@@ -73,6 +73,10 @@ export const api = {
   downloadUrl(jobId) {
     return `/api/jobs/${jobId}/download`
   },
+
+  jobPreviewUrl(jobId) {
+    return `/api/jobs/${jobId}/preview`
+  },
 }
 
 /** Upload a File/Blob in chunks with progress. */
